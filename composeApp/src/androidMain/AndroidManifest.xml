@@ -5,6 +5,12 @@
          Nothing else in the app makes a request. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Listening continues with the app in the background and the screen off
+         (PRD §6.6), which is a foreground service with a media notification. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <!-- Package visibility (Android 11+): without this the speech engine is
          invisible to us and TextToSpeech init fails with no explanation. -->
     <queries>
@@ -28,6 +34,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".engine.PlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
     </application>
 
 </manifest>

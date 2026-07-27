@@ -141,6 +141,12 @@ fun SettingsScreen(
                     )
                 }
                 RowDivider()
+                LectorRow(
+                    "Listening in the background",
+                    subtitle = "Lock-screen controls, headphone buttons, and audio that " +
+                        "pauses for a call and picks itself up after",
+                ) { Pill("On", on = true, dot = true) }
+                RowDivider()
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                     RowLabel("Sleep timer default")
                     Text(

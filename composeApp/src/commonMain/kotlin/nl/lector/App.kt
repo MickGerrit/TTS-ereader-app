@@ -27,7 +27,11 @@ import nl.lector.data.LibrarySource
 import nl.lector.data.NoCoverSource
 import nl.lector.data.NoLibrary
 import nl.lector.data.NoOpSidecarWriter
+import nl.lector.data.NoPlaybackHost
 import nl.lector.data.NoStorage
+import nl.lector.data.NowPlaying
+import nl.lector.data.PlaybackCommand
+import nl.lector.data.PlaybackHost
 import nl.lector.data.SidecarWriter
 import nl.lector.data.Storage
 import nl.lector.data.formatBytes
@@ -75,6 +79,7 @@ fun App(
     sidecar: SidecarWriter = NoOpSidecarWriter(),
     coverSource: CoverSource = NoCoverSource(),
     storage: Storage = NoStorage(),
+    playback: PlaybackHost = NoPlaybackHost(),
     now: () -> String = { "--:--" },
 ) {
     val state = remember(prefs) { LectorState(prefs).apply { load() } }
@@ -234,6 +239,49 @@ fun App(
     }
 
     // ── effects ───────────────────────────────────────────────────────────
+
+    /**
+     * The lock screen, the notification and the headphone buttons all arrive here,
+     * and go to the same functions the on-screen transport calls (Epic 4).
+     */
+    LaunchedEffect(Unit) {
+        playback.onCommand { command ->
+            when (command) {
+                PlaybackCommand.Play -> startListening()
+                PlaybackCommand.Pause -> state.ttsOn = false
+                PlaybackCommand.Next -> seekChapter(1)
+                PlaybackCommand.Previous -> seekChapter(-1)
+                PlaybackCommand.Stop -> {
+                    state.ttsOn = false
+                    state.spokenIndex = -1
+                    state.save()
+                }
+            }
+        }
+    }
+
+    // What the outside world is told. Keyed on what a lock screen actually shows, so
+    // it is not rebuilt on every word.
+    LaunchedEffect(state.listening, state.ttsOn, state.bookId, state.chapter?.title) {
+        val book = state.book
+        if (!state.listening || book == null) {
+            playback.hide()
+            return@LaunchedEffect
+        }
+        playback.show(
+            NowPlaying(
+                title = book.title,
+                author = book.author,
+                chapter = state.chapter?.title,
+                coverPath = book.coverImagePath,
+                playing = state.ttsOn,
+            ),
+        )
+    }
+
+    // Pausing is where a listening session usually ends, killed process or not, so
+    // it is where the position is worth writing down (story 4.6).
+    LaunchedEffect(state.ttsOn) { if (!state.ttsOn) state.save() }
 
     // The folder is scanned every time the app opens, quietly.
     LaunchedEffect(Unit) {
