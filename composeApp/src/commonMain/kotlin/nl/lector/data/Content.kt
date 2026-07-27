@@ -1,48 +1,14 @@
 package nl.lector.data
 
 /**
- * Sample reading content.
+ * Chapters, voices and the page model used to live here alongside three hard-coded
+ * pages of *Max Havelaar*. The sample text is gone: the reader renders the real
+ * EPUB through Readium, and the speech engine reads the real content.
  *
- * This is the last hard-coded content in the app, and it is here because rendering
- * a real EPUB's text needs Readium (TECHNICALPRD §12, Spike B). The library itself
- * is real — see [LibrarySource] — so what remains fixed is the *page content* of an
- * opened book, not which books exist.
- *
- * Multatuli, *Max Havelaar* (1860): public domain, original spelling.
+ * What is left is the voice catalogue, which becomes a real manifest once Spike A
+ * settles which models ship, and a placeholder table of contents until Readium's own
+ * navigation document is wired to the Contents sheet.
  */
-val BookPages: List<List<List<String>>> = listOf(
-    listOf(
-        listOf(
-            "Ik ben makelaar in koffi, en woon op de Lauriergracht, N° 37.",
-            "Het is myn gewoonte niet, romans te schryven, of zulke dingen, en het heeft dan ook lang geduurd, voor ik er toe overging een paar riem papier extra te bestellen, en het werk aantevangen, dat gy, lieve lezer, zoo-even in de hand hebt genomen, en dat ge lezen moet als ge makelaar in koffi zyt, of als ge wat anders zyt.",
-        ),
-        listOf(
-            "Niet alleen dat ik nooit iets schreef wat naar een roman geleek, maar ik houd er zelfs niet van, iets dergelyks te lezen, omdat ik een man van zaken ben.",
-            "Ik vraag sedert jaren: waartoe dienen zulke dingen?",
-        ),
-    ),
-    listOf(
-        listOf(
-            "Ik sta verbaasd over de onbeschaamdheid waarmede een dichter u een leugen durft opdringen, die hy zelf voelt en weet.",
-            "Hy vertelt u van een kind dat in de wieg ligt te lachen, en dat de moeder het kust met tranen in de oogen.",
-        ),
-        listOf(
-            "Ik heb daarvan nooit iets gezien, en het is dus niet waar.",
-            "Wie zulke dingen schryft, bedriegt de menschen die hem gelooven, en dat is niet eerlyk.",
-        ),
-    ),
-    listOf(
-        listOf(
-            "Ik ben makelaar in koffi, en woon op de Lauriergracht N° 37.",
-            "Doch ik heb het onaangename van myn beroep zoo lang gedragen, dat ik het recht meen te hebben iets te zeggen over de waarheid.",
-        ),
-        listOf(
-            "Want de waarheid is een zaak, en een zaak moet men behandelen als een zaak.",
-            "Dat is myn stelling, en daarnaar handel ik, ook als ik schryf.",
-        ),
-    ),
-)
-
 data class Chapter(val number: String, val title: String, val pages: String)
 
 /**
@@ -108,27 +74,3 @@ val VoiceSamples = mapOf(
     "de" to "Der Wanderer steht am Rand des Waldes und lauscht dem Regen.",
     "fr" to "Le voyageur s’arrête au bord du bois et écoute la pluie.",
 )
-
-// ─── page model ───────────────────────────────────────────────────────────
-
-/** One sentence, plus where its words start in the page-wide word index. */
-data class SentenceSpan(val firstWord: Int, val words: List<String>) {
-    val lastWord: Int get() = firstWord + words.size - 1
-}
-
-/** A rendered page: paragraphs of sentences, with a flat word count for the TTS walker. */
-class PageModel(val paragraphs: List<List<SentenceSpan>>, val totalWords: Int) {
-    val sentences: List<SentenceSpan> = paragraphs.flatten()
-}
-
-fun pageModel(index: Int): PageModel {
-    val page = BookPages.getOrElse(index) { BookPages.first() }
-    var w = 0
-    val paragraphs = page.map { sentences ->
-        sentences.map { sentence ->
-            val words = sentence.split(" ")
-            SentenceSpan(w, words).also { w += words.size }
-        }
-    }
-    return PageModel(paragraphs, w)
-}

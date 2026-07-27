@@ -18,12 +18,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
-import nl.lector.data.BookPages
 import nl.lector.data.LibrarySource
+import nl.lector.data.NoOpSidecarWriter
 import nl.lector.data.SampleLibrary
+import nl.lector.data.SidecarWriter
 import nl.lector.data.Toc
 import nl.lector.data.chapterStart
-import nl.lector.data.pageModel
 import nl.lector.platform.rememberFolderPicker
 import nl.lector.design.Appearance
 import nl.lector.design.BottomSheet
@@ -34,6 +34,7 @@ import nl.lector.design.NavBar
 import nl.lector.design.Snackbar
 import nl.lector.design.rememberFonts
 import nl.lector.engine.SimulatedTts
+import nl.lector.reader.PlatformReader
 import nl.lector.reader.ReaderEngineSpike
 import nl.lector.engine.TtsEngine
 import nl.lector.screen.AppearanceSheetBody
@@ -42,7 +43,6 @@ import nl.lector.screen.ImportScreen
 import nl.lector.screen.LibraryScreen
 import nl.lector.screen.ListenScreen
 import nl.lector.screen.PlaybackSheetBody
-import nl.lector.screen.ReaderScreen
 import nl.lector.screen.SettingsScreen
 import nl.lector.screen.VoicesScreen
 import nl.lector.screen.fmt1
@@ -66,6 +66,7 @@ fun App(
     prefs: Prefs = MemoryPrefs(),
     library: LibrarySource = SampleLibrary(),
     engine: TtsEngine = SimulatedTts(),
+    sidecar: SidecarWriter = NoOpSidecarWriter(),
     now: () -> String = { "--:--" },
 ) {
     val state = remember(prefs) { LectorState(prefs).apply { load() } }
@@ -87,39 +88,33 @@ fun App(
     // ── behaviours shared by more than one entry point ────────────────────
 
     fun turnPage(direction: Int) {
-        val next = state.page + direction
-        when {
-            next < 0 -> state.show("Start of the chapter.", "OK")
-            next >= BookPages.size -> state.show("End of the sample text.", "OK")
-            else -> {
-                state.page = next
-                state.word = -1
-                state.ttsEpoch++
-                // Symmetric: turning back moves the position back. The prototype only
-                // ever counted up, which lets progress drift away from where you are.
-                state.bumpProgress(if (direction > 0) state.pageStep else -state.pageStep)
-                state.save()
-            }
+        // The engine owns pagination now; progress follows from its locator.
+        val controller = state.readerController
+        if (controller != null) {
+            if (direction > 0) controller.goForward() else controller.goBackward()
+            return
         }
+        // No reader on screen (the Listening transport), so move the position itself.
+        state.bumpProgress(if (direction > 0) state.pageStep else -state.pageStep)
+        state.save()
     }
 
     /** Jumping from the Contents sheet moves the position, not just the highlight. */
     fun goToChapter(index: Int) {
         val id = state.book?.id ?: return
-        state.progress[id] = chapterStart(index)
-        state.page = (index * BookPages.size / Toc.size).coerceIn(0, BookPages.lastIndex)
+        val target = chapterStart(index)
+        state.progress[id] = target
+        state.readerController?.goTo(target)
         state.word = -1
         state.ttsEpoch++
         state.save()
     }
 
     fun seekSentence(direction: Int) {
-        val sentences = pageModel(state.page).sentences
-        val current = sentences.indexOfLast { state.word >= it.firstWord }.coerceAtLeast(0)
-        val target = (current + direction).coerceIn(0, sentences.lastIndex)
-        state.word = sentences[target].firstWord
+        if (state.spokenSegments.isEmpty()) return
+        state.spokenIndex = (state.spokenIndex + direction)
+            .coerceIn(0, state.spokenSegments.lastIndex)
         state.ttsEpoch++
-        state.save()
     }
 
     /** One entry point for start/stop, so the card, the reader and the player agree. */
@@ -138,26 +133,13 @@ fun App(
 
     fun openBook(id: String) {
         state.openBook(id)
-        // Until Readium renders the real file, every book opens onto the same sample
-        // text. Saying so beats letting it look like the book you picked.
-        state.show("Sample text — Readium rendering is not wired up yet.", "OK")
         state.screen = Screen.Reader
     }
 
     fun closeBook() {
         state.ttsOn = false
-        state.lastWrite = now()
-        state.save()
         state.screen = Screen.Library
-        val pct = state.pct
-        val title = state.book?.title ?: return
-        // ponytail: says the sidecar was written; actually writing it is Spike C.
-        state.show(
-            "Wrote `percent_finished = ${fmt3(pct)}` to `$title.sdr` — " +
-                "library now shows ${fmt1(pct * 100)}%.",
-            "OK",
-            durationMs = 5000,
-        )
+        state.writeSidecarOnClose = state.book
     }
 
     fun fetchCover(id: String) {
@@ -212,6 +194,26 @@ fun App(
         }
     }
 
+    // Leaving a book writes the sidecar, and says what actually happened.
+    LaunchedEffect(state.writeSidecarOnClose) {
+        val book = state.writeSidecarOnClose ?: return@LaunchedEffect
+        state.writeSidecarOnClose = null
+        val pct = state.pctOf(book.id)
+        val failure = sidecar.write(book, pct, state.readerLocator)
+        if (failure == null) {
+            state.lastWrite = now()
+            state.save()
+            state.show(
+                "Wrote `percent_finished = ${fmt3(pct)}` to `${book.title}.sdr` — " +
+                    "library now shows ${fmt1(pct * 100)}%.",
+                "OK",
+                durationMs = 5000,
+            )
+        } else {
+            state.show(failure, "OK", durationMs = 6000)
+        }
+    }
+
     LaunchedEffect(state.snack) {
         val snack = state.snack ?: return@LaunchedEffect
         delay(snack.durationMs)
@@ -239,34 +241,40 @@ fun App(
             return@LaunchedEffect
         }
 
-        while (state.ttsOn) {
-            val words = pageModel(state.page).sentences.flatMap { it.words }
-            val from = (state.word + 1).coerceIn(0, words.size)
-            val failure = engine.speak(words, from, state.rate, state.book?.language) {
-                state.word = it
-            }
+        // The engine parses the book asynchronously; playback waits for it rather
+        // than falling back to something that is not this book.
+        if (state.spokenSegments.isEmpty()) {
+            state.show("Still opening the book — try play again in a moment.", "OK")
+            state.ttsOn = false
+            return@LaunchedEffect
+        }
 
-            // Without this the loop would "read" the whole book in silence, one
-            // failed page at a time.
+        var index = state.spokenIndex.coerceAtLeast(0)
+        while (state.ttsOn && index <= state.spokenSegments.lastIndex) {
+            state.spokenIndex = index
+            val segment = state.spokenSegments[index]
+            val failure = engine.speak(
+                words = segment.text.split(" ").filter { it.isNotBlank() },
+                from = 0,
+                rate = state.rate,
+                language = state.book?.language,
+                onWord = { state.word = it },
+            )
+
             if (failure != null) {
                 state.ttsOn = false
                 state.save()
                 state.show(failure, "OK", durationMs = 6000)
-                break
+                return@LaunchedEffect
             }
+            index++
+        }
 
-            if (!state.ttsOn) break
-
-            if (state.page + 1 < BookPages.size) {
-                state.page++
-                state.word = -1
-                state.bumpProgress(state.pageStep)
-            } else {
-                state.word = -1
-                state.ttsOn = false
-                state.save()
-                state.show("End of the sample text. Position saved.", "OK")
-            }
+        if (state.ttsOn) {
+            state.ttsOn = false
+            state.spokenIndex = -1
+            state.save()
+            state.show("End of the book. Position saved.", "OK")
         }
     }
 
@@ -319,7 +327,7 @@ fun App(
                                 onFetchCover = ::fetchCover,
                             )
 
-                            Screen.Reader -> ReaderScreen(
+                            Screen.Reader -> PlatformReader(
                                 state = state,
                                 onBack = ::closeBook,
                                 onContents = { state.sheet = Sheet.Contents },
@@ -329,7 +337,6 @@ fun App(
                                 },
                                 onTogglePlay = ::togglePlay,
                                 onExpand = { state.screen = Screen.Listen },
-                                onTurnPage = ::turnPage,
                             )
 
                             Screen.Listen -> ListenScreen(

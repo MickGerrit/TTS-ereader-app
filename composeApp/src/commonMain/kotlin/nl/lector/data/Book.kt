@@ -25,6 +25,8 @@ data class Book(
     val sidecarProgress: Float = 0f,
     /** Opaque handle the platform uses to reopen the file. */
     val locator: String = "",
+    /** Cached path to the cover extracted from the EPUB, when it had one. */
+    val coverImagePath: String? = null,
 ) {
     /**
      * The generated placeholder's palette (PRD §6.7). Derived from the title, so a

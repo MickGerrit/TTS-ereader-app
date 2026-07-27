@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import nl.lector.data.Book
+import nl.lector.data.SpokenSegment
 import nl.lector.data.BundledVoices
 import nl.lector.data.FolderGrant
 import nl.lector.data.Voice
@@ -102,8 +103,27 @@ class LectorState(private val prefs: Prefs) {
 
     var fetchingCover by mutableStateOf<String?>(null)
 
+    /**
+     * The open book's text, in speaking order, with each fragment's position in the
+     * publication. Filled by the reader once the engine has parsed the file; empty
+     * until then, which is why playback waits rather than reading a fixture.
+     */
+    val spokenSegments: SnapshotStateList<SpokenSegment> = mutableStateListOf()
+
+    /** Which segment is being spoken, or -1. Drives the highlight in the page. */
+    var spokenIndex by mutableStateOf(-1)
+
+    /** Set when leaving a book, so the sidecar write happens in a coroutine. */
+    var writeSidecarOnClose by mutableStateOf<Book?>(null)
+
     /** Library search. Transient — a filter, not a preference. */
     var query by mutableStateOf("")
+
+    /** The live reader, while one is on screen. Drives the transport's page turns. */
+    var readerController: nl.lector.reader.ReaderController? = null
+
+    /** Readium's own position for the open book, serialised. Written to the sidecar. */
+    var readerLocator by mutableStateOf<String?>(null)
 
     /** Minutes left on the sleep timer, or null when it is off. */
     var sleepMinutesLeft by mutableStateOf<Int?>(null)
@@ -198,6 +218,7 @@ class LectorState(private val prefs: Prefs) {
         prefs.put("appearance", appearance.name)
         prefs.put("lastWrite", lastWrite.orEmpty())
         prefs.put("lastScan", lastScan)
+        prefs.put("locator", readerLocator.orEmpty())
         prefs.put("progress", progress.entries.joinToString(",") { "${it.key}=${it.value}" })
         prefs.put("fetched", fetched.filterValues { it }.keys.joinToString(","))
         prefs.put("added", added.filterValues { it }.keys.joinToString(","))
@@ -224,6 +245,7 @@ class LectorState(private val prefs: Prefs) {
         prefs.get("appearance")?.let { n -> Appearance.entries.firstOrNull { it.name == n }?.let { appearance = it } }
         prefs.get("lastWrite")?.takeIf { it.isNotEmpty() }?.let { lastWrite = it }
         prefs.get("lastScan")?.let { lastScan = it }
+        prefs.get("locator")?.takeIf { it.isNotEmpty() }?.let { readerLocator = it }
 
         prefs.get("progress")?.split(",")?.forEach { entry ->
             val parts = entry.split("=")

@@ -28,6 +28,8 @@ data class EpubMetadata(
     val hasCover: Boolean,
     /** Bytes of markup in the spine, for the page estimate. */
     val contentBytes: Long,
+    /** Zip entry of the cover image, already resolved against the OPF's folder. */
+    val coverEntry: String?,
 )
 
 /**
@@ -67,16 +69,50 @@ fun readEpubMetadata(open: () -> InputStream): EpubMetadata? {
         return null
     }
 
-    val opf = rootfilePath?.let { opfCandidates[it] }
-        ?: opfCandidates.values.firstOrNull()
+    val opfPath = rootfilePath?.takeIf { it in opfCandidates } ?: opfCandidates.keys.firstOrNull()
+    val opf = opfPath?.let { opfCandidates[it] }
         ?: run {
             Log.w(Tag, "no package document found (candidates=${opfCandidates.keys})")
             return null
         }
 
-    return runCatching { parseOpf(opf, contentBytes) }
+    return runCatching { parseOpf(opf, contentBytes, opfPath) }
         .onFailure { Log.w(Tag, "could not parse package document", it) }
         .getOrNull()
+}
+
+/**
+ * Pull the cover image out of the zip.
+ *
+ * A second pass over the file, because the cover's href is only known after the
+ * package document has been parsed and zip entries cannot be rewound. Cheap enough:
+ * it only runs for books that declare a cover, once per scan.
+ */
+fun extractCoverImage(open: () -> InputStream, entry: String): ByteArray? = runCatching {
+    ZipInputStream(open().buffered()).use { zip ->
+        while (true) {
+            val next = zip.nextEntry ?: break
+            if (next.name.equals(entry, ignoreCase = true)) return@use zip.readBytes()
+        }
+        null
+    }
+}.getOrNull()
+
+/** Resolve an OPF-relative href against the package document's own folder. */
+private fun resolveAgainstOpf(opfPath: String, href: String): String {
+    if (href.startsWith("/")) return href.trimStart('/')
+    val dir = opfPath.substringBeforeLast('/', missingDelimiterValue = "")
+    val joined = if (dir.isEmpty()) href else "$dir/$href"
+    // Flatten any ../ segments so the result matches a real zip entry name.
+    val parts = ArrayDeque<String>()
+    joined.split('/').forEach {
+        when (it) {
+            ".", "" -> Unit
+            ".." -> parts.removeLastOrNull()
+            else -> parts.addLast(it)
+        }
+    }
+    return parts.joinToString("/")
 }
 
 /**
@@ -104,7 +140,7 @@ private fun parseContainer(bytes: ByteArray): String? = runCatching {
         ?.ifBlank { null }
 }.getOrNull()
 
-private fun parseOpf(bytes: ByteArray, contentBytes: Long): EpubMetadata {
+private fun parseOpf(bytes: ByteArray, contentBytes: Long, opfPath: String): EpubMetadata {
     val doc = parse(bytes)
 
     // Namespace-unaware parsing, so `dc:title` and a default-namespaced `title`
@@ -116,13 +152,21 @@ private fun parseOpf(bytes: ByteArray, contentBytes: Long): EpubMetadata {
 
     val items = doc.getElementsByTagName("item")
     val manifestIds = mutableSetOf<String>()
+    val hrefById = mutableMapOf<String, String>()
     var hasCoverProperty = false
+    var coverHref: String? = null
     for (i in 0 until items.length) {
         val item = items.item(i) as? Element ?: continue
-        item.getAttribute("id")?.ifBlank { null }?.let { manifestIds += it }
+        val id = item.getAttribute("id")?.ifBlank { null }
+        val href = item.getAttribute("href")?.ifBlank { null }
+        if (id != null) {
+            manifestIds += id
+            if (href != null) hrefById[id] = href
+        }
         // EPUB 3 declares the cover on the manifest item itself.
         if (item.getAttribute("properties").orEmpty().contains("cover-image")) {
             hasCoverProperty = true
+            if (href != null) coverHref = href
         }
     }
 
@@ -136,11 +180,16 @@ private fun parseOpf(bytes: ByteArray, contentBytes: Long): EpubMetadata {
         }
     }
 
+    // EPUB 2's <meta name="cover"> wins only if its id is really in the manifest.
+    val metaCoverHref = coverMetaId?.takeIf { it in manifestIds }?.let { hrefById[it] }
+    val href = coverHref ?: metaCoverHref
+
     return EpubMetadata(
         title = firstText("title"),
         author = firstText("creator"),
         language = firstText("language"),
-        hasCover = hasCoverProperty || (coverMetaId != null && coverMetaId in manifestIds),
+        hasCover = hasCoverProperty || metaCoverHref != null,
         contentBytes = contentBytes,
+        coverEntry = href?.let { resolveAgainstOpf(opfPath, it) },
     )
 }

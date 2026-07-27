@@ -1,6 +1,7 @@
 package nl.lector.design
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -30,7 +31,9 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
+import nl.lector.platform.rememberCoverImage
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -42,9 +45,8 @@ enum class CoverArt { Canal, Wave, Grain, Plain }
 /**
  * A cover for a scanned book, with the `GEN` / `OL` flag applied for you.
  *
- * ponytail: still draws a generated mark rather than the EPUB's own cover image.
- * Decoding the embedded artwork needs a platform image loader; wire it here and every
- * call site benefits at once.
+ * Books that carry their own artwork show it. The generated placeholder, and the flag
+ * that admits it is generated, are for the ones that do not (PRD §6.7).
  */
 @Composable
 fun BookCover(
@@ -55,6 +57,22 @@ fun BookCover(
     onFetch: (() -> Unit)? = null,
     fetching: Boolean = false,
 ) {
+    val artwork = rememberCoverImage(book.coverImagePath)
+
+    // Real artwork needs none of the generated furniture: no mark, no scrim, no
+    // title plate, no flag. The placeholder is what all of that exists for.
+    if (artwork != null) {
+        Image(
+            bitmap = artwork,
+            contentDescription = "${book.title} by ${book.author}",
+            contentScale = ContentScale.Crop,
+            modifier = modifier
+                .aspectRatio(2f / 3f)
+                .clip(RoundedCornerShape(Shape.xs)),
+        )
+        return
+    }
+
     val hasCover = book.hasEmbeddedCover || coverFetched
     Cover(
         title = book.title,

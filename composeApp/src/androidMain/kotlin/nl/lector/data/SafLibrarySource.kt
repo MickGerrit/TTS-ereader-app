@@ -6,6 +6,7 @@ import android.provider.DocumentsContract
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import java.io.File
 import kotlin.coroutines.coroutineContext
 
 /**
@@ -106,17 +107,41 @@ class SafLibrarySource(private val context: Context) : LibrarySource {
             ?.let { readSidecarProgress(treeUri, it) }
             ?: 0f
 
+        val id = stableHash(path).toString(16)
+        val coverPath = meta.coverEntry?.let { cacheCover(uri, it, id) }
+
         return Book(
             // Path-derived, so progress survives a rescan but a moved file starts fresh.
-            id = stableHash(path).toString(16),
+            id = id,
             title = meta.title ?: basename,
             author = meta.author ?: "Unknown",
             language = meta.language?.take(2)?.uppercase().orEmpty(),
             pages = estimatePages(meta.contentBytes),
-            hasEmbeddedCover = meta.hasCover,
+            // Only claim a cover if we actually got the bytes out.
+            hasEmbeddedCover = meta.hasCover && coverPath != null,
             sidecarProgress = progress,
             locator = uri.toString(),
+            coverImagePath = coverPath,
         )
+    }
+
+    /**
+     * Extract the cover once and keep it in the app cache.
+     *
+     * Reading it out of the zip on every recomposition would be absurd, and the cache
+     * is disposable: a cleared cache just means the next scan extracts it again.
+     */
+    private fun cacheCover(uri: Uri, entry: String, id: String): String? {
+        val dir = File(context.cacheDir, "covers").apply { mkdirs() }
+        val file = File(dir, "$id.img")
+        if (file.exists() && file.length() > 0) return file.absolutePath
+
+        val bytes = extractCoverImage({ context.contentResolver.openInputStream(uri)!! }, entry)
+            ?: return null
+        return runCatching {
+            file.writeBytes(bytes)
+            file.absolutePath
+        }.getOrNull()
     }
 
     /**
