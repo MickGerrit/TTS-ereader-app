@@ -60,35 +60,34 @@ fun BookCover(
     val artwork = rememberCoverImage(book.coverImagePath)
 
     // Real artwork needs none of the generated furniture: no mark, no scrim, no
-    // title plate, no flag. The placeholder is what all of that exists for.
+    // title plate. The one thing it does carry is where it came from, when that was
+    // Open Library rather than the file itself.
     if (artwork != null) {
-        Image(
-            bitmap = artwork,
-            contentDescription = "${book.title} by ${book.author}",
-            contentScale = ContentScale.Crop,
-            modifier = modifier
-                .aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(Shape.xs)),
-        )
+        Box(modifier.aspectRatio(2f / 3f).clip(RoundedCornerShape(Shape.xs))) {
+            Image(
+                bitmap = artwork,
+                contentDescription = "${book.title} by ${book.author}",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (coverFetched) Flag("OL", Color.White, Color.Black.copy(alpha = 0.62f))
+        }
         return
     }
 
-    val hasCover = book.hasEmbeddedCover || coverFetched
+    // No artwork on disk means a placeholder is on screen, so the flag says GEN —
+    // whatever the file claimed and whatever was fetched once (story 1.3).
     Cover(
         title = book.title,
         author = book.author,
         bg = book.coverBackground,
         fg = book.coverForeground,
         art = book.coverArt,
-        hasCover = hasCover,
+        hasCover = book.hasEmbeddedCover,
         modifier = modifier,
         large = large,
-        flag = when {
-            book.hasEmbeddedCover -> null
-            coverFetched -> "OL"
-            else -> "GEN"
-        },
-        onFetch = if (!hasCover) onFetch else null,
+        flag = "GEN",
+        onFetch = onFetch,
         fetching = fetching,
     )
 }
@@ -182,22 +181,8 @@ fun Cover(
             )
         }
 
-        // GEN until a cover is fetched, OL once Open Library answered.
-        if (flag != null) {
-            Text(
-                flag,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(7.dp)
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(cfg.copy(alpha = 0.88f))
-                    .padding(horizontal = 5.dp, vertical = 2.dp),
-                style = TextStyle(
-                    fontFamily = LocalFonts.current.mono, fontSize = 7.5.sp,
-                    letterSpacing = 0.75.sp, color = cbg,
-                ),
-            )
-        }
+        // GEN while a placeholder is on screen, OL over artwork Open Library sent.
+        if (flag != null) Flag(flag, cbg, cfg.copy(alpha = 0.88f))
 
         if (onFetch != null) {
             Box(
@@ -218,6 +203,24 @@ fun Cover(
             }
         }
     }
+}
+
+/** The provenance badge in the top corner: where this cover came from. */
+@Composable
+private fun BoxScope.Flag(text: String, fg: Color, bg: Color) {
+    Text(
+        text,
+        modifier = Modifier
+            .align(Alignment.TopEnd)
+            .padding(7.dp)
+            .clip(RoundedCornerShape(3.dp))
+            .background(bg)
+            .padding(horizontal = 5.dp, vertical = 2.dp),
+        style = TextStyle(
+            fontFamily = LocalFonts.current.mono, fontSize = 7.5.sp,
+            letterSpacing = 0.75.sp, color = fg,
+        ),
+    )
 }
 
 /** The four marks, transcribed from the prototype's inline SVGs (viewBox 60×90). */

@@ -33,7 +33,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import nl.lector.data.chapterFor
 import nl.lector.design.IconBtn
 import nl.lector.design.LectorIcons
 import nl.lector.design.LocalChrome
@@ -175,7 +174,8 @@ private fun ReaderBottomChrome(
                             // page counter and two 44dp buttons. Speed only appears
                             // when it is off the default.
                             val speed = if (state.rate != 1f) " · ${fmt1(state.rate)}×" else ""
-                            MetaText("Ch. ${chapterFor(p).number}$speed", ink)
+                            val chapter = state.chapter?.title ?: "—"
+                            MetaText("$chapter$speed", ink, Modifier.weight(1f, fill = false))
                             MetaText(
                                 "${fmt1(p * 100)}% · p. ${(p * book.pages).roundToInt().coerceAtLeast(1)}/${book.pages}",
                                 ink,
@@ -226,9 +226,10 @@ private fun PlayGlyph(state: LectorState, hidden: Boolean, ink: Color, onClick: 
 }
 
 @Composable
-private fun MetaText(text: String, ink: Color) {
+private fun MetaText(text: String, ink: Color, modifier: Modifier = Modifier) {
     Text(
         text,
+        modifier = modifier,
         style = TextStyle(
             fontFamily = LocalFonts.current.mono, fontSize = 10.sp,
             letterSpacing = 0.5.sp, color = ink.copy(alpha = 0.65f),

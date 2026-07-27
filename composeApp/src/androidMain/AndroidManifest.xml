@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Cover lookup only, and only when the reader turns it on (PRD §6.7).
+         Nothing else in the app makes a request. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Package visibility (Android 11+): without this the speech engine is
          invisible to us and TextToSpeech init fails with no explanation. -->
     <queries>

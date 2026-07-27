@@ -50,7 +50,6 @@ fun SettingsScreen(
     onVoices: () -> Unit,
     onFetchCovers: () -> Unit,
     onPickFolder: () -> Unit,
-    onEngineSpike: () -> Unit,
 ) {
     val c = LocalChrome.current
     var uiLang by remember { mutableStateOf(UiLang.English) }
@@ -237,17 +236,6 @@ fun SettingsScreen(
                 }
             }
             Note("Reading and TTS language are per book and independent of this setting.")
-
-            // Temporary: the entry point for Spike B. Delete once the real reader
-            // runs on Readium, or if the spike says it should not.
-            Eyebrow("Engine spike", Modifier.padding(top = 22.dp, bottom = 10.dp))
-            CardM3 {
-                ChevronRow(
-                    "Readium reader (Spike B)",
-                    subtitle = "Renders the real EPUB with the design tokens applied",
-                    onClick = onEngineSpike,
-                )
-            }
         }
     }
 }

@@ -18,12 +18,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import nl.lector.data.CoverResult
+import nl.lector.data.CoverSource
 import nl.lector.data.LibrarySource
+import nl.lector.data.NoCoverSource
+import nl.lector.data.NoLibrary
 import nl.lector.data.NoOpSidecarWriter
-import nl.lector.data.SampleLibrary
 import nl.lector.data.SidecarWriter
-import nl.lector.data.Toc
-import nl.lector.data.chapterStart
 import nl.lector.platform.rememberFolderPicker
 import nl.lector.design.Appearance
 import nl.lector.design.BottomSheet
@@ -35,7 +36,6 @@ import nl.lector.design.Snackbar
 import nl.lector.design.rememberFonts
 import nl.lector.engine.SimulatedTts
 import nl.lector.reader.PlatformReader
-import nl.lector.reader.ReaderEngineSpike
 import nl.lector.engine.TtsEngine
 import nl.lector.screen.AppearanceSheetBody
 import nl.lector.screen.ContentsSheetBody
@@ -64,9 +64,10 @@ import nl.lector.state.Sheet
 @Composable
 fun App(
     prefs: Prefs = MemoryPrefs(),
-    library: LibrarySource = SampleLibrary(),
+    library: LibrarySource = NoLibrary(),
     engine: TtsEngine = SimulatedTts(),
     sidecar: SidecarWriter = NoOpSidecarWriter(),
+    coverSource: CoverSource = NoCoverSource(),
     now: () -> String = { "--:--" },
 ) {
     val state = remember(prefs) { LectorState(prefs).apply { load() } }
@@ -102,9 +103,11 @@ fun App(
     /** Jumping from the Contents sheet moves the position, not just the highlight. */
     fun goToChapter(index: Int) {
         val id = state.book?.id ?: return
-        val target = chapterStart(index)
-        state.progress[id] = target
-        state.readerController?.goTo(target)
+        val chapter = state.chapters.getOrNull(index) ?: return
+        // The reader lands on the chapter's own locator; the percentage follows from
+        // it once the engine reports back, and stands in until then.
+        state.progress[id] = chapter.progression
+        state.readerController?.goTo(chapter.locatorJson)
         state.word = -1
         state.ttsEpoch++
         state.save()
@@ -153,6 +156,14 @@ fun App(
             return
         }
         state.fetchingCover = id
+    }
+
+    /** A cover that actually came back replaces the placeholder for that book. */
+    fun applyCover(id: String, path: String) {
+        val index = state.books.indexOfFirst { it.id == id }
+        if (index >= 0) state.books[index] = state.books[index].copy(coverImagePath = path)
+        state.fetched[id] = true
+        state.save()
     }
 
     // ── effects ───────────────────────────────────────────────────────────
@@ -220,14 +231,62 @@ fun App(
         if (state.snack === snack) state.snack = null
     }
 
+    // One cover, from the button on the placeholder. The batch below drives the same
+    // flag for its spinner, so this stands aside while that is running.
     LaunchedEffect(state.fetchingCover) {
         val id = state.fetchingCover ?: return@LaunchedEffect
-        delay(1100)
-        state.fetched[id] = true
+        if (state.fetchingAll) return@LaunchedEffect
+        val book = state.books.firstOrNull { it.id == id }
+        val result = book?.let { coverSource.fetch(it) }
         state.fetchingCover = null
-        state.save()
-        val title = state.books.firstOrNull { it.id == id }?.title ?: return@LaunchedEffect
-        state.show("Cover for *$title* came back from Open Library and is cached locally.", "OK")
+        when (result) {
+            null -> Unit
+            is CoverResult.Found -> {
+                applyCover(id, result.path)
+                state.show(
+                    "Cover for *${book.title}* came back from Open Library and is cached locally.",
+                    "OK",
+                )
+            }
+
+            // Failure is said out loud rather than left as a placeholder that looks
+            // like nothing happened (story 1.4).
+            is CoverResult.Missing -> state.show(result.reason, "OK", durationMs = 5000)
+        }
+    }
+
+    // "Fetch covers now": every placeholder in one pass, reporting what came back.
+    LaunchedEffect(state.fetchingAll) {
+        if (!state.fetchingAll) return@LaunchedEffect
+        val pending = state.booksWithoutCover()
+        when {
+            !state.covers -> state.show(
+                "Cover lookup is off. Turn on *Fetch missing covers* first.", "OK",
+            )
+
+            pending.isEmpty() -> state.show("Every book already has a cover.", "OK")
+
+            else -> {
+                var found = 0
+                pending.forEach { book ->
+                    state.fetchingCover = book.id
+                    val result = coverSource.fetch(book)
+                    if (result is CoverResult.Found) {
+                        applyCover(book.id, result.path)
+                        found++
+                    }
+                }
+                state.fetchingCover = null
+                state.show(
+                    "$found of ${pending.size} cover${if (pending.size > 1) "s" else ""} " +
+                        "came back from Open Library. " +
+                        "${pending.size - found} still show a generated placeholder.",
+                    "OK",
+                    durationMs = 5000,
+                )
+            }
+        }
+        state.fetchingAll = false
     }
 
     // Playback. Re-entered whenever the position moves under the engine's feet.
@@ -298,9 +357,6 @@ fun App(
 
     SystemBack(enabled = state.sheet != null) { closeSheet(state) }
     SystemBack(enabled = state.sheet == null && state.screen == Screen.Reader) { closeBook() }
-    SystemBack(enabled = state.sheet == null && state.screen == Screen.EngineSpike) {
-        state.screen = Screen.Settings
-    }
     SystemBack(enabled = state.sheet == null && state.screen == Screen.Voices) {
         state.screen = if (state.listening) Screen.Listen else Screen.Settings
     }
@@ -348,9 +404,6 @@ fun App(
                                 onTurnPage = ::turnPage,
                             )
 
-                            Screen.EngineSpike ->
-                                ReaderEngineSpike(state) { state.screen = Screen.Settings }
-
                             Screen.Voices -> VoicesScreen(state) {
                                 state.screen = if (state.listening) Screen.Listen else Screen.Settings
                             }
@@ -363,9 +416,8 @@ fun App(
                                     state.sheet = Sheet.Appearance
                                 },
                                 onVoices = { state.screen = Screen.Voices },
-                                onFetchCovers = { fetchAllCovers(state) },
+                                onFetchCovers = { state.fetchingAll = true },
                                 onPickFolder = pickFolder,
-                                onEngineSpike = { state.screen = Screen.EngineSpike },
                             )
                         }
                     }
@@ -416,23 +468,6 @@ private fun closeSheet(state: LectorState) {
     state.sheetReturn?.let {
         state.screen = it
         state.sheetReturn = null
-    }
-}
-
-private fun fetchAllCovers(state: LectorState) {
-    val pending = state.booksWithoutCover()
-    when {
-        pending.isEmpty() -> state.show("Every book already has a cover.", "OK")
-        !state.covers -> state.show(
-            "Cover lookup is off. Turn on *Fetch missing covers* first.", "OK",
-        )
-
-        else -> {
-            pending.forEach { state.fetched[it.id] = true }
-            state.save()
-            val n = pending.size
-            state.show("$n cover${if (n > 1) "s" else ""} fetched and cached locally.", "OK")
-        }
     }
 }
 

@@ -36,7 +36,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import nl.lector.data.chapterFor
 import nl.lector.design.BookCover
 import nl.lector.design.Eyebrow
 import nl.lector.design.IconBtn
@@ -157,7 +156,7 @@ fun ListenScreen(
                 textAlign = TextAlign.Center,
             )
             Text(
-                "${book.author} · ${chapterFor(p).number}. ${chapterFor(p).title}",
+                listOfNotNull(book.author, state.chapter?.title).joinToString(" · "),
                 modifier = Modifier.padding(top = 5.dp),
                 style = TextStyle(
                     fontFamily = LocalFonts.current.body, fontSize = 13.5.sp, color = c.muted,

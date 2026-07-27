@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
+import nl.lector.data.OpenLibraryCovers
 import nl.lector.data.SafLibrarySource
 import nl.lector.data.SafSidecarWriter
 import nl.lector.engine.AndroidTts
@@ -35,6 +36,7 @@ class MainActivity : AppCompatActivity() {
                 library = library,
                 sidecar = SafSidecarWriter(applicationContext),
                 engine = tts,
+                coverSource = OpenLibraryCovers(applicationContext),
                 now = { LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm")) },
             )
         }

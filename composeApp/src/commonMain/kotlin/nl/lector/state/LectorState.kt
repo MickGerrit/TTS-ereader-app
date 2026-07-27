@@ -8,7 +8,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import nl.lector.data.Book
+import nl.lector.data.Chapter
 import nl.lector.data.SpokenSegment
+import nl.lector.data.indexAt
 import nl.lector.data.BundledVoices
 import nl.lector.data.FolderGrant
 import nl.lector.data.Voice
@@ -17,7 +19,7 @@ import nl.lector.design.Appearance
 import nl.lector.design.ReadingFont
 import nl.lector.design.ReadingTheme
 
-enum class Screen { Import, Library, Reader, Voices, Listen, Settings, EngineSpike }
+enum class Screen { Import, Library, Reader, Voices, Listen, Settings }
 enum class Sheet { Appearance, Contents, Playback }
 
 /** A snackbar message. `*bold*` and `` `mono` `` are rendered as such. */
@@ -57,7 +59,6 @@ class LectorState(private val prefs: Prefs) {
 
     // ── persisted preferences ─────────────────────────────────────────────
     var onboarded by mutableStateOf(false); private set
-    var page by mutableStateOf(0)
     var word by mutableStateOf(-1)
 
     var font by mutableStateOf(ReadingFont.Serif)
@@ -113,6 +114,15 @@ class LectorState(private val prefs: Prefs) {
     /** Which segment is being spoken, or -1. Drives the highlight in the page. */
     var spokenIndex by mutableStateOf(-1)
 
+    /**
+     * The open book's own table of contents, read from its navigation document.
+     * Empty until the reader has opened the file, and for books that carry none.
+     */
+    val chapters: SnapshotStateList<Chapter> = mutableStateListOf()
+
+    /** True while a batch cover fetch is running. */
+    var fetchingAll by mutableStateOf(false)
+
     /** Set when leaving a book, so the sidecar write happens in a coroutine. */
     var writeSidecarOnClose by mutableStateOf<Book?>(null)
 
@@ -138,6 +148,12 @@ class LectorState(private val prefs: Prefs) {
 
     val pct: Float get() = book?.let { pctOf(it.id) } ?: 0f
 
+    /** Which entry of the book's own contents the position falls in, or -1. */
+    val chapterIndex: Int get() = chapters.indexAt(pct)
+
+    /** The chapter being read, or null for a book with no navigation document. */
+    val chapter: Chapter? get() = chapters.getOrNull(chapterIndex)
+
     fun installedVoices(): List<Voice> =
         BundledVoices + VoiceCatalogue.filter { added[it.id] == true }
 
@@ -150,8 +166,8 @@ class LectorState(private val prefs: Prefs) {
         }
     }
 
-    fun booksWithoutCover(): List<Book> =
-        books.filter { !it.hasEmbeddedCover && fetched[it.id] != true }
+    /** Books still showing a generated placeholder, which is what a fetch is for. */
+    fun booksWithoutCover(): List<Book> = books.filter { it.coverImagePath == null }
 
     /** Title-or-author match, case- and accent-insensitively enough for a shelf. */
     fun matchingBooks(): List<Book> {
@@ -175,8 +191,9 @@ class LectorState(private val prefs: Prefs) {
     fun openBook(id: String) {
         if (id != bookId) {
             // A different book means a different position; do not carry the old one.
-            page = 0
             word = -1
+            readerLocator = null
+            chapters.clear()
         }
         bookId = id
         save()
@@ -204,7 +221,6 @@ class LectorState(private val prefs: Prefs) {
         prefs.put("folderLocator", folder?.locator.orEmpty())
         prefs.put("folderLabel", folder?.label.orEmpty())
         prefs.put("book", bookId.orEmpty())
-        prefs.put("page", page.toString())
         prefs.put("word", word.toString())
         prefs.put("font", font.name)
         prefs.put("size", size.toString())
@@ -231,7 +247,6 @@ class LectorState(private val prefs: Prefs) {
             folder = FolderGrant(locator, prefs.get("folderLabel").orEmpty())
         }
         prefs.get("book")?.takeIf { it.isNotEmpty() }?.let { bookId = it }
-        prefs.get("page")?.toIntOrNull()?.let { page = it }
         prefs.get("word")?.toIntOrNull()?.let { word = it }
         prefs.get("font")?.let { n -> ReadingFont.entries.firstOrNull { it.name == n }?.let { font = it } }
         prefs.get("size")?.toIntOrNull()?.let { size = it }

@@ -346,7 +346,9 @@ private fun ContinueCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Mono("${fmt1(p * 100)}% · p. $page", size = 10.5.sp)
-                    Mono(if (p > 0f) "ch. 1" else "${book.pages} pages", size = 10.5.sp)
+                    // The chapter is only known while the book is open; before that
+                    // the length is the honest thing to show.
+                    Mono(state.chapter?.title ?: "${book.pages} pages", size = 10.5.sp)
                 }
             }
         }

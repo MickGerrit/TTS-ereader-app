@@ -1,40 +1,27 @@
 package nl.lector.data
 
 /**
- * Chapters, voices and the page model used to live here alongside three hard-coded
- * pages of *Max Havelaar*. The sample text is gone: the reader renders the real
- * EPUB through Readium, and the speech engine reads the real content.
+ * One entry from the open book's own navigation document.
  *
- * What is left is the voice catalogue, which becomes a real manifest once Spike A
- * settles which models ship, and a placeholder table of contents until Readium's own
- * navigation document is wired to the Contents sheet.
+ * [progression] is where the entry starts in the whole publication, so the reader,
+ * the Listening screen and the Contents sheet all answer "which chapter am I in"
+ * from the same number. [locatorJson] is the engine's own position for the entry,
+ * which is what a jump uses: landing on the chapter start rather than on a
+ * percentage that happens to be nearby.
  */
-data class Chapter(val number: String, val title: String, val pages: String)
+data class Chapter(val title: String, val progression: Float, val locatorJson: String)
 
 /**
- * Which chapter a reading position falls in.
+ * Which entry a reading position falls in, or -1 when the book has no navigation
+ * document (or has not been opened yet).
  *
- * Derived from the percentage rather than stored, so the reader, the Listening
- * screen and the Contents sheet cannot disagree about where you are. Readium
- * replaces this with the book's real spine positions.
+ * ponytail: entries that share a start, several anchors into one XHTML file, all
+ * resolve to the last of them, because a link's fragment has no progression until
+ * the page is laid out. Right for one file per chapter, which is the common shape;
+ * wrong for a whole book in one file. Match on the live Locator's href and
+ * in-resource progression if that turns out to matter.
  */
-fun chapterIndexFor(pct: Float): Int =
-    (pct * Toc.size).toInt().coerceIn(0, Toc.lastIndex)
-
-fun chapterFor(pct: Float): Chapter = Toc[chapterIndexFor(pct)]
-
-/** The reading percentage a chapter starts at — used when jumping from Contents. */
-fun chapterStart(index: Int): Float = index.toFloat() / Toc.size
-
-/** Placeholder table of contents; Readium supplies the real one per book. */
-val Toc = listOf(
-    Chapter("1", "Makelaar in koffie", "0–14"),
-    Chapter("2", "Sjaalman", "15–31"),
-    Chapter("3", "De Droogstoppels", "32–48"),
-    Chapter("4", "Een brief", "49–66"),
-    Chapter("5", "Lebak", "67–92"),
-    Chapter("6", "Havelaar in Rangkas-Betoeng", "93–128"),
-)
+fun List<Chapter>.indexAt(pct: Float): Int = indexOfLast { it.progression <= pct }
 
 /**
  * Voices are packages, not a setting. Dutch and English ship with the app; more can

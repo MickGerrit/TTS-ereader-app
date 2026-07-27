@@ -28,8 +28,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import nl.lector.data.Toc
-import nl.lector.data.chapterIndexFor
 import nl.lector.design.CardM3
 import nl.lector.design.ChevronRow
 import nl.lector.design.Eyebrow
@@ -217,16 +215,27 @@ fun ColumnScope.AppearanceSheetBody(state: LectorState) {
     }
 }
 
-/** Jumping to a chapter moves the reading position, not just the list selection. */
+/**
+ * The open book's own contents. Jumping moves the reading position, not just the
+ * list selection.
+ */
 @Composable
 fun ColumnScope.ContentsSheetBody(state: LectorState, onSelect: (Int) -> Unit) {
-    val here = chapterIndexFor(state.pct)
+    if (state.chapters.isEmpty()) {
+        Note(
+            if (state.book == null) "No book open." else
+                "This book carries no table of contents, or it has not finished opening yet.",
+        )
+        return
+    }
+
+    val here = state.chapterIndex
     CardM3 {
-        Toc.forEachIndexed { i, chapter ->
+        state.chapters.forEachIndexed { i, chapter ->
             if (i > 0) RowDivider()
             LectorRow(
-                "${chapter.number}. ${chapter.title}",
-                subtitle = "pp. ${chapter.pages}",
+                "${i + 1}. ${chapter.title}",
+                subtitle = "${fmt1(chapter.progression * 100)}%",
                 subtitleMono = true,
                 onClick = { onSelect(i) },
             ) { if (i == here) Pill("Here", on = true) }

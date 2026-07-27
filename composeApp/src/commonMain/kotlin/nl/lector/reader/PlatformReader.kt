@@ -25,6 +25,6 @@ interface ReaderController {
     fun goForward()
     fun goBackward()
 
-    /** Jump to a fraction of the whole book, for the Contents sheet. */
-    fun goTo(progression: Float)
+    /** Jump to a position the engine itself produced, for the Contents sheet. */
+    fun goTo(locatorJson: String)
 }

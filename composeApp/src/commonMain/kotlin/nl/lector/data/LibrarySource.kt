@@ -21,9 +21,8 @@ data class ScanResult(
 /**
  * Where the library comes from.
  *
- * The real implementation walks a granted folder and reads each EPUB's own metadata;
- * [SampleLibrary] stands in for previews and tests. Nothing above this interface
- * knows which one it has.
+ * The implementation walks a granted folder and reads each EPUB's own metadata. No
+ * book content is authored in the app: the library is whatever is in the folder.
  */
 interface LibrarySource {
     /**
@@ -37,27 +36,8 @@ interface LibrarySource {
     ): ScanResult
 }
 
-/**
- * Fixed books for previews, tests and the emulator before a folder is granted.
- *
- * Public-domain titles only, so the sample library is legal to ship and recognisable
- * while developing. This is the *only* place book content is authored in the app.
- */
-class SampleLibrary : LibrarySource {
-    override suspend fun scan(
-        grant: FolderGrant,
-        onProgress: (Int, Int) -> Unit,
-    ): ScanResult {
-        SampleBooks.forEachIndexed { i, _ -> onProgress((i + 1) * 8, i + 1) }
-        return ScanResult(SampleBooks, filesSeen = 47)
-    }
+/** Finds nothing. For previews and tests, where no folder has been granted. */
+class NoLibrary : LibrarySource {
+    override suspend fun scan(grant: FolderGrant, onProgress: (Int, Int) -> Unit) =
+        ScanResult(emptyList(), filesSeen = 0)
 }
-
-val SampleBooks = listOf(
-    Book("havelaar", "Max Havelaar", "Multatuli", "NL", 268, true, 0f),
-    Book("johannes", "De kleine Johannes", "Frederik van Eeden", "NL", 184, true, 0.62f),
-    Book("moby", "Moby-Dick", "Herman Melville", "EN", 624, true, 0.18f),
-    Book("walden", "Walden", "Henry D. Thoreau", "EN", 312, true, 1.0f),
-    Book("koele", "Van de koele meren des doods", "Frederik van Eeden", "NL", 296, false, 0f),
-    Book("franken", "Frankenstein", "Mary Shelley", "EN", 280, false, 0f),
-)

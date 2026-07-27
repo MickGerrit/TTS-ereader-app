@@ -108,7 +108,9 @@ class SafLibrarySource(private val context: Context) : LibrarySource {
             ?: 0f
 
         val id = stableHash(path).toString(16)
-        val coverPath = meta.coverEntry?.let { cacheCover(uri, it, id) }
+        // Either the book's own artwork, or one Open Library sent for it earlier —
+        // both live in the same cache file, so a fetched cover survives a rescan.
+        val coverPath = meta.coverEntry?.let { cacheCover(uri, it, id) } ?: cachedCover(id)
 
         return Book(
             // Path-derived, so progress survives a rescan but a moved file starts fresh.
@@ -131,6 +133,10 @@ class SafLibrarySource(private val context: Context) : LibrarySource {
      * Reading it out of the zip on every recomposition would be absurd, and the cache
      * is disposable: a cleared cache just means the next scan extracts it again.
      */
+    private fun cachedCover(id: String): String? =
+        File(File(context.cacheDir, "covers"), "$id.img")
+            .takeIf { it.exists() && it.length() > 0 }?.absolutePath
+
     private fun cacheCover(uri: Uri, entry: String, id: String): String? {
         val dir = File(context.cacheDir, "covers").apply { mkdirs() }
         val file = File(dir, "$id.img")

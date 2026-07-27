@@ -2,46 +2,47 @@ package nl.lector.data
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 /**
- * The reader, the Listening screen and the Contents sheet all render "where am I"
- * from these two functions. If they disagree, three screens disagree.
+ * The reader chrome, the Listening screen and the Contents sheet all render "where
+ * am I" from [indexAt]. If it disagrees with itself, three screens disagree.
  */
 class ChapterTest {
 
+    private fun chapters(vararg starts: Float) =
+        starts.mapIndexed { i, p -> Chapter("Chapter ${i + 1}", p, """{"href":"$i"}""") }
+
+    private val book = chapters(0f, 0.12f, 0.4f, 0.75f)
+
     @Test
     fun `a chapter's own start resolves back to that chapter`() {
-        Toc.indices.forEach { i ->
-            assertEquals(i, chapterIndexFor(chapterStart(i)), "chapter $i did not round-trip")
+        book.indices.forEach { i ->
+            assertEquals(i, book.indexAt(book[i].progression), "chapter $i did not round-trip")
         }
     }
 
     @Test
-    fun `position is clamped at both ends rather than throwing`() {
-        assertEquals(0, chapterIndexFor(0f))
-        assertEquals(0, chapterIndexFor(-1f))
-        assertEquals(Toc.lastIndex, chapterIndexFor(1f))
-        assertEquals(Toc.lastIndex, chapterIndexFor(2f))
+    fun `a position inside a chapter resolves to the chapter it started in`() {
+        assertEquals(0, book.indexAt(0.05f))
+        assertEquals(1, book.indexAt(0.39f))
+        assertEquals(2, book.indexAt(0.74f))
+        assertEquals(3, book.indexAt(1f))
     }
 
     @Test
-    fun `chapters advance monotonically through the book`() {
-        var last = 0
+    fun `a book with no navigation document reports no chapter rather than chapter one`() {
+        assertEquals(-1, emptyList<Chapter>().indexAt(0.5f))
+    }
+
+    @Test
+    fun `chapters never go backwards as the position advances`() {
+        var last = -1
         var pct = 0f
         while (pct <= 1f) {
-            val here = chapterIndexFor(pct)
-            assertTrue(here >= last, "chapter went backwards at $pct")
+            val here = book.indexAt(pct)
+            assert(here >= last) { "chapter went backwards at $pct" }
             last = here
             pct += 0.01f
-        }
-    }
-
-    @Test
-    fun `page step covers the whole book in exactly one pass`() {
-        listOf(1, 90, 106, 624).forEach { pages ->
-            val step = 1f / pages
-            assertEquals(1f, step * pages, 0.0001f, "$pages pages did not sum to one book")
         }
     }
 }

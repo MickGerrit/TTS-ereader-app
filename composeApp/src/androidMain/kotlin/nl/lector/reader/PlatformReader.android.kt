@@ -32,11 +32,16 @@ import androidx.fragment.app.commitNow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import nl.lector.data.Chapter
 import nl.lector.data.SpokenSegment
 import org.json.JSONObject
 import org.readium.r2.navigator.Decoration
+import org.readium.r2.shared.publication.Publication
+import org.readium.r2.shared.publication.flatten
+import org.readium.r2.shared.publication.indexOfFirstWithHref
 import org.readium.r2.shared.publication.services.content.Content
 import org.readium.r2.shared.publication.services.content.content
+import org.readium.r2.shared.publication.services.positionsByReadingOrder
 import androidx.compose.ui.graphics.toArgb
 import nl.lector.design.LocalChrome
 import nl.lector.design.LocalFonts
@@ -85,10 +90,14 @@ private fun ReadiumPage(state: LectorState, publication: org.readium.r2.shared.p
     var navigator by remember { mutableStateOf<EpubNavigatorFragment?>(null) }
     val chromeAccent = LocalChrome.current.accent
 
-    // Where to open: the position we already have for this book, so a reopened book
-    // lands where the reader left it rather than at the cover.
+    // Where to open: the engine's own last position for this book, so a reopened book
+    // lands on the same line rather than on the same percentage (Epic 9.1). The
+    // locator is cleared when a different book is opened, so it is never another
+    // book's. Percentage is the fallback for a book opened before this existed.
     val startLocator = remember(publication, state.bookId) {
-        publication.locatorFromProgression(state.pct)
+        state.readerLocator
+            ?.let { runCatching { Locator.fromJSON(JSONObject(it)) }.getOrNull() }
+            ?: publication.locatorFromProgression(state.pct)
     }
 
     AndroidView(
@@ -167,6 +176,17 @@ private fun ReadiumPage(state: LectorState, publication: org.readium.r2.shared.p
         }
     }
 
+    // The book's own table of contents (Epic 2). Read once per publication, so the
+    // Contents sheet, the reader chrome and the Listening screen all name the same
+    // chapter — the book's, not one we invented.
+    LaunchedEffect(publication) {
+        val chapters = withContext(Dispatchers.IO) {
+            runCatching { publication.readChapters() }.getOrDefault(emptyList())
+        }
+        state.chapters.clear()
+        state.chapters += chapters
+    }
+
     /**
      * Hand the book's text to the speech engine.
      *
@@ -228,10 +248,10 @@ private fun ReadiumPage(state: LectorState, publication: org.readium.r2.shared.p
             object : ReaderController {
                 override fun goForward() { it.goForward(animated = true) }
                 override fun goBackward() { it.goBackward(animated = true) }
-                override fun goTo(progression: Float) {
-                    publication.locatorFromProgression(progression)?.let { target ->
-                        scope.launch { it.go(target, animated = false) }
-                    }
+                override fun goTo(locatorJson: String) {
+                    val target = runCatching { Locator.fromJSON(JSONObject(locatorJson)) }
+                        .getOrNull() ?: return
+                    scope.launch { it.go(target, animated = false) }
                 }
             }
         }
@@ -240,12 +260,41 @@ private fun ReadiumPage(state: LectorState, publication: org.readium.r2.shared.p
 }
 
 /** A locator for a fraction of the whole book, using the reading order's positions. */
-private fun org.readium.r2.shared.publication.Publication.locatorFromProgression(
-    progression: Float,
-): Locator? {
+private fun Publication.locatorFromProgression(progression: Float): Locator? {
     if (progression <= 0f) return readingOrder.firstOrNull()?.let { locatorFromLink(it) }
     val index = ((readingOrder.size) * progression).toInt().coerceIn(0, readingOrder.lastIndex)
     return readingOrder.getOrNull(index)?.let { locatorFromLink(it) }
+}
+
+/**
+ * The publication's own navigation document, flattened.
+ *
+ * Nested entries are kept rather than dropped: a book that puts its chapters one
+ * level under a part heading would otherwise show only the parts. Each entry's
+ * progression comes from the positions service, which is what makes "Here" agree
+ * with the percentage the rest of the app shows.
+ *
+ * Books with no navigation document fall back to the spine (story 2.5) — untitled
+ * sections, but real ones, which is better than hiding the sheet.
+ */
+private suspend fun Publication.readChapters(): List<Chapter> {
+    val positions = positionsByReadingOrder()
+    val entries = tableOfContents.flatten().ifEmpty { readingOrder }
+
+    return entries.mapIndexedNotNull { i, link ->
+        val locator = locatorFromLink(link) ?: return@mapIndexedNotNull null
+        val resource = readingOrder.indexOfFirstWithHref(locator.href.removeFragment())
+        val progression = resource
+            ?.let { positions.getOrNull(it)?.firstOrNull()?.locations?.totalProgression }
+            ?.toFloat()
+            ?: (i.toFloat() / entries.size)
+
+        Chapter(
+            title = link.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Section ${i + 1}",
+            progression = progression,
+            locatorJson = locator.toJSON().toString(),
+        )
+    }
 }
 
 @Composable
