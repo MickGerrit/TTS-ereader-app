@@ -44,6 +44,7 @@ class AndroidTts(context: Context) : TtsEngine {
         words: List<String>,
         from: Int,
         rate: Float,
+        pitch: Float,
         language: String?,
         onWord: (Int) -> Unit,
     ): String? {
@@ -51,6 +52,7 @@ class AndroidTts(context: Context) : TtsEngine {
         if (from >= words.size) return null
         tts.setLanguage(localeFor(language))
         tts.setSpeechRate(rate)
+        tts.setPitch(pitch)
 
         // One utterance for the whole remaining page, plus the character offset each
         // word starts at — that is what turns the engine's range callbacks back into

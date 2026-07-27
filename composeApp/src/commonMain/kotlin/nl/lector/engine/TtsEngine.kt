@@ -31,6 +31,7 @@ interface TtsEngine {
         words: List<String>,
         from: Int,
         rate: Float,
+        pitch: Float,
         language: String?,
         onWord: (Int) -> Unit,
     ): String?
@@ -50,6 +51,7 @@ class SimulatedTts : TtsEngine {
         words: List<String>,
         from: Int,
         rate: Float,
+        pitch: Float,
         language: String?,
         onWord: (Int) -> Unit,
     ): String? {

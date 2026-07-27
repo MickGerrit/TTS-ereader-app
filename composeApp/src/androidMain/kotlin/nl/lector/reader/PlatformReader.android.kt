@@ -135,7 +135,10 @@ private fun ReadiumPage(state: LectorState, publication: org.readium.r2.shared.p
     )
 
     // Live restyling: every appearance change is one call.
-    LaunchedEffect(navigator, state.theme, state.warmth, state.font, state.size, state.bold, state.lead, state.margin) {
+    LaunchedEffect(
+        navigator, state.theme, state.warmth, state.font, state.size, state.bold,
+        state.lead, state.margin, state.scrolling,
+    ) {
         navigator?.submitPreferences(lectorPreferences(state))
     }
 

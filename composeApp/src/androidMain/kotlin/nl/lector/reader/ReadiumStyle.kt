@@ -44,8 +44,9 @@ fun lectorPreferences(state: LectorState): EpubPreferences {
         lineHeight = state.lead.toDouble(),
         pageMargins = state.margin / BaseMargin,
 
-        // Paginated, one column: page turns are the default (PRD §6.3).
-        scroll = false,
+        // Page turns are the default (PRD §6.3); scrolling is the reader's choice
+        // to make, and Readium's own preference covers it (PRD §13.3).
+        scroll = state.scrolling,
         columnCount = ColumnCount.ONE,
 
         // Without this the book's own stylesheet keeps winning and the reader's

@@ -23,6 +23,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import nl.lector.data.formatBytes
 import nl.lector.design.Appearance
 import nl.lector.design.CardM3
 import nl.lector.design.ChevronRow
@@ -40,9 +41,6 @@ import nl.lector.design.RowDivider
 import nl.lector.design.Segmented
 import nl.lector.state.LectorState
 
-/** UI language is still a manual toggle; following the system locale is open (PRD §13.1). */
-private enum class UiLang(val label: String) { System("Systeem"), English("English"), Dutch("Nederlands") }
-
 @Composable
 fun SettingsScreen(
     state: LectorState,
@@ -50,9 +48,10 @@ fun SettingsScreen(
     onVoices: () -> Unit,
     onFetchCovers: () -> Unit,
     onPickFolder: () -> Unit,
+    onClearCache: () -> Unit,
+    cacheBytes: Long,
 ) {
     val c = LocalChrome.current
-    var uiLang by remember { mutableStateOf(UiLang.English) }
     val pending = state.booksWithoutCover().size
 
     Column(
@@ -76,8 +75,26 @@ fun SettingsScreen(
                     onClick = onAppearance,
                 )
                 RowDivider()
-                LectorRow("Page turns", subtitle = "Paginated, tap left or right") {
-                    Mono("Paginated", size = 13.5.sp)
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    RowLabel("Reading mode")
+                    Text(
+                        if (state.scrolling) {
+                            "One continuous column. The tap zones still turn by a screen."
+                        } else {
+                            "Tap left or right to turn the page."
+                        },
+                        modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
+                        style = TextStyle(
+                            fontFamily = LocalFonts.current.body, fontSize = 12.5.sp,
+                            color = c.muted,
+                        ),
+                    )
+                    Segmented(
+                        options = listOf(false, true),
+                        selected = state.scrolling,
+                        label = { if (it) "Scrolling" else "Paginated" },
+                        onSelect = { state.scrolling = it; state.save() },
+                    )
                 }
             }
 
@@ -106,12 +123,39 @@ fun SettingsScreen(
                     )
                 }
                 RowDivider()
-                LectorRow("Sleep timer default") { Mono("30 min", size = 13.5.sp) }
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        RowLabel("Speaking pitch")
+                        Mono("${fmt1(state.pitch)}×", size = 13.5.sp)
+                    }
+                    M3Slider(
+                        value = (state.pitch - 0.7f) / 0.7f,
+                        onValue = { state.pitch = pitchFromSlider(it); state.save() },
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
                 RowDivider()
-                LectorRow(
-                    "Media notification",
-                    subtitle = "MediaSession controls on the lock screen and headphone buttons",
-                ) { Pill("On", on = true, dot = true) }
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    RowLabel("Sleep timer default")
+                    Text(
+                        if (state.sleepDefault > 0) {
+                            "Every listening session starts a ${state.sleepDefault} minute timer."
+                        } else {
+                            "No timer unless you set one in Playback."
+                        },
+                        modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
+                        style = TextStyle(
+                            fontFamily = LocalFonts.current.body, fontSize = 12.5.sp,
+                            color = c.muted,
+                        ),
+                    )
+                    Segmented(
+                        options = listOf(0, 15, 30, 45, 60),
+                        selected = state.sleepDefault,
+                        label = { if (it == 0) "Off" else "$it" },
+                        onSelect = { state.sleepDefault = it; state.save() },
+                    )
+                }
             }
 
             Eyebrow("Library", Modifier.padding(top = 22.dp, bottom = 10.dp))
@@ -216,26 +260,27 @@ fun SettingsScreen(
                 }
             }
 
-            Eyebrow("Language", Modifier.padding(top = 22.dp, bottom = 10.dp))
+            Eyebrow("Storage", Modifier.padding(top = 22.dp, bottom = 10.dp))
             CardM3 {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    Text(
-                        "Interface language",
-                        modifier = Modifier.padding(bottom = 10.dp),
-                        style = TextStyle(
-                            fontFamily = LocalFonts.current.body, fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium, color = c.fg,
-                        ),
-                    )
-                    Segmented(
-                        options = UiLang.entries,
-                        selected = uiLang,
-                        label = { it.label },
-                        onSelect = { uiLang = it },
-                    )
-                }
+                LectorRow(
+                    "Books",
+                    subtitle = "Stay in your own folder. Lector never copies them, so they " +
+                        "cost nothing here.",
+                ) { Mono("0 B", size = 13.5.sp) }
+                RowDivider()
+                LectorRow(
+                    "Cover cache",
+                    subtitle = "Artwork taken out of your EPUBs, plus anything Open Library " +
+                        "sent. Tap to clear: the next scan rebuilds it.",
+                    onClick = onClearCache,
+                ) { Mono(formatBytes(cacheBytes), size = 13.5.sp) }
             }
-            Note("Reading and TTS language are per book and independent of this setting.")
+            Note(
+                "The interface is English only. A language toggle that changed nothing was " +
+                    "worse than no toggle, so the row is gone until the strings are " +
+                    "translatable (PRD §13.1). Reading and speech language come from each " +
+                    "book and were never tied to it.",
+            )
         }
     }
 }
@@ -243,5 +288,11 @@ fun SettingsScreen(
 /** Slider 0..1 → speaking rate 0.7×..2.0×, in the prototype's 0.05 steps. */
 fun rateFromSlider(t: Float): Float {
     val stepped = ((70f + t * 130f) / 5f).toInt() * 5
+    return stepped / 100f
+}
+
+/** Slider 0..1 → pitch 0.7×..1.4×, in the same 0.05 steps as the rate. */
+fun pitchFromSlider(t: Float): Float {
+    val stepped = ((70f + t * 70f) / 5f).toInt() * 5
     return stepped / 100f
 }

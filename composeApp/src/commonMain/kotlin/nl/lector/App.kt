@@ -14,7 +14,10 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -24,7 +27,10 @@ import nl.lector.data.LibrarySource
 import nl.lector.data.NoCoverSource
 import nl.lector.data.NoLibrary
 import nl.lector.data.NoOpSidecarWriter
+import nl.lector.data.NoStorage
 import nl.lector.data.SidecarWriter
+import nl.lector.data.Storage
+import nl.lector.data.formatBytes
 import nl.lector.platform.rememberFolderPicker
 import nl.lector.design.Appearance
 import nl.lector.design.BottomSheet
@@ -68,9 +74,13 @@ fun App(
     engine: TtsEngine = SimulatedTts(),
     sidecar: SidecarWriter = NoOpSidecarWriter(),
     coverSource: CoverSource = NoCoverSource(),
+    storage: Storage = NoStorage(),
     now: () -> String = { "--:--" },
 ) {
     val state = remember(prefs) { LectorState(prefs).apply { load() } }
+    // Recomputed when something changed it, not on every recomposition.
+    var cacheGeneration by remember { mutableIntStateOf(0) }
+    val cacheBytes = remember(cacheGeneration, state.books.size) { storage.usedBytes() }
     val fonts = rememberFonts()
     val pickFolder = rememberFolderPicker { grant ->
         state.folder = grant
@@ -120,18 +130,26 @@ fun App(
         state.ttsEpoch++
     }
 
+    /** A session that starts arms the sleep timer, if a default is set (story 8.2). */
+    fun startListening() {
+        state.ttsOn = true
+        if (state.sleepMinutesLeft == null && state.sleepDefault > 0) {
+            state.sleepMinutesLeft = state.sleepDefault
+        }
+    }
+
     /** One entry point for start/stop, so the card, the reader and the player agree. */
     fun toggleListen() {
         if (state.ttsOn) {
             state.ttsOn = false
         } else {
-            state.ttsOn = true
+            startListening()
             state.screen = Screen.Listen
         }
     }
 
     fun togglePlay() {
-        state.ttsOn = !state.ttsOn
+        if (state.ttsOn) state.ttsOn = false else startListening()
     }
 
     /**
@@ -333,7 +351,7 @@ fun App(
     }
 
     // Playback. Re-entered whenever the position moves under the engine's feet.
-    LaunchedEffect(state.ttsOn, state.rate, state.ttsEpoch, state.bookId) {
+    LaunchedEffect(state.ttsOn, state.rate, state.pitch, state.ttsEpoch, state.bookId) {
         if (!state.ttsOn) return@LaunchedEffect
 
         // A missing voice should say so, not just fail to make a sound.
@@ -359,6 +377,7 @@ fun App(
                 words = segment.text.split(" ").filter { it.isNotBlank() },
                 from = 0,
                 rate = state.rate,
+                pitch = state.pitch,
                 language = state.book?.language,
                 onWord = { state.word = it },
             )
@@ -461,6 +480,21 @@ fun App(
                                 onVoices = { state.screen = Screen.Voices },
                                 onFetchCovers = { state.fetchingAll = true },
                                 onPickFolder = pickFolder,
+                                onClearCache = {
+                                    val freed = storage.clear()
+                                    cacheGeneration++
+                                    // The covers are gone from memory too, so rebuild
+                                    // them rather than showing placeholders until the
+                                    // next launch.
+                                    state.scanIsAuto = true
+                                    state.scanning = true
+                                    state.show(
+                                        "Cleared ${formatBytes(freed)} of cached covers. " +
+                                            "Rebuilding from your books.",
+                                        "OK",
+                                    )
+                                },
+                                cacheBytes = cacheBytes,
                             )
                         }
                     }
