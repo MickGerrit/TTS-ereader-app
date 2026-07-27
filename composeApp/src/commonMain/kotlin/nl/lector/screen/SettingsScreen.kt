@@ -96,6 +96,12 @@ fun SettingsScreen(
                         onSelect = { state.scrolling = it; state.save() },
                     )
                 }
+                RowDivider()
+                LectorRow(
+                    "Keep the screen on",
+                    subtitle = "While a book is open. Released the moment you leave it.",
+                    onClick = { state.keepAwake = !state.keepAwake; state.save() },
+                ) { M3Switch(state.keepAwake) }
             }
 
             Eyebrow("Voice & playback", Modifier.padding(top = 22.dp, bottom = 10.dp))

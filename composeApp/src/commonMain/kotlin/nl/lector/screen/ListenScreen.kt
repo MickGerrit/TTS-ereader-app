@@ -63,7 +63,7 @@ fun ListenScreen(
     onPlayback: () -> Unit,
     onTogglePlay: () -> Unit,
     onSeekSentence: (Int) -> Unit,
-    onTurnPage: (Int) -> Unit,
+    onSeekChapter: (Int) -> Unit,
 ) {
     val c = LocalChrome.current
     val book = state.book ?: return
@@ -183,7 +183,7 @@ fun ListenScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                TransportButton(LectorIcons.PrevParagraph, "Previous paragraph") { onTurnPage(-1) }
+                TransportButton(LectorIcons.PrevParagraph, "Previous chapter") { onSeekChapter(-1) }
                 TransportButton(LectorIcons.PrevSentence, "Previous sentence") { onSeekSentence(-1) }
 
                 Box(
@@ -202,7 +202,7 @@ fun ListenScreen(
                 }
 
                 TransportButton(LectorIcons.NextSentence, "Next sentence") { onSeekSentence(1) }
-                TransportButton(LectorIcons.NextParagraph, "Next chapter") { onTurnPage(1) }
+                TransportButton(LectorIcons.NextParagraph, "Next chapter") { onSeekChapter(1) }
             }
 
                 // Only present while a timer is running, so it reads as state rather

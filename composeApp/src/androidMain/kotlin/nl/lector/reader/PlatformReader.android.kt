@@ -21,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -64,6 +65,14 @@ actual fun PlatformReader(
 ) {
     val book = state.book
     val opened = book?.locator?.let { rememberPublication(it) }
+
+    // Reading is not idling: a page you are still on should not time out (story 9.5).
+    // Scoped to the reader, and released with it, so it can never outlive the book.
+    val view = LocalView.current
+    DisposableEffect(state.keepAwake) {
+        view.keepScreenOn = state.keepAwake
+        onDispose { view.keepScreenOn = false }
+    }
 
     ReaderScreen(
         state = state,

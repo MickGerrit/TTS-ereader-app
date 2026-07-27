@@ -98,6 +98,9 @@ class LectorState(private val prefs: Prefs) {
     /** Minutes the sleep timer arms itself at when listening starts. 0 is off. */
     var sleepDefault by mutableStateOf(0)
 
+    /** Hold the screen on while a book is open. On, because reading is not idling. */
+    var keepAwake by mutableStateOf(true)
+
     var covers by mutableStateOf(false)
     var appearance by mutableStateOf(Appearance.System)
 
@@ -305,6 +308,7 @@ class LectorState(private val prefs: Prefs) {
         prefs.put("pitch", pitch.toString())
         prefs.put("scrolling", scrolling.toString())
         prefs.put("sleepDefault", sleepDefault.toString())
+        prefs.put("keepAwake", keepAwake.toString())
         prefs.put("covers", covers.toString())
         prefs.put("appearance", appearance.name)
         prefs.put("lastWrite", lastWrite.orEmpty())
@@ -336,6 +340,7 @@ class LectorState(private val prefs: Prefs) {
         prefs.get("pitch")?.toFloatOrNull()?.let { pitch = it }
         prefs.get("scrolling")?.let { scrolling = it.toBoolean() }
         prefs.get("sleepDefault")?.toIntOrNull()?.let { sleepDefault = it }
+        prefs.get("keepAwake")?.let { keepAwake = it.toBoolean() }
         prefs.get("covers")?.let { covers = it.toBoolean() }
         prefs.get("appearance")?.let { n -> Appearance.entries.firstOrNull { it.name == n }?.let { appearance = it } }
         prefs.get("lastWrite")?.takeIf { it.isNotEmpty() }?.let { lastWrite = it }

@@ -123,6 +123,24 @@ fun App(
         state.save()
     }
 
+    /**
+     * The transport's outer buttons say chapter, so they move a chapter (story 9.2).
+     *
+     * Back from the middle of a chapter goes to that chapter's start first, which is
+     * what every audio player does and what "previous" means to a listener.
+     */
+    fun seekChapter(direction: Int) {
+        val chapters = state.chapters
+        // A book with no navigation document has no chapters to skip; the page is
+        // the only unit it has.
+        if (chapters.isEmpty()) return turnPage(direction)
+
+        val here = state.chapterIndex.coerceAtLeast(0)
+        val restart = direction < 0 && state.pct > chapters[here].progression + 0.01f
+        val target = (if (restart) here else here + direction).coerceIn(0, chapters.lastIndex)
+        goToChapter(target)
+    }
+
     fun seekSentence(direction: Int) {
         if (state.spokenSegments.isEmpty()) return
         state.spokenIndex = (state.spokenIndex + direction)
@@ -463,7 +481,7 @@ fun App(
                                 onPlayback = { state.sheet = Sheet.Playback },
                                 onTogglePlay = ::togglePlay,
                                 onSeekSentence = ::seekSentence,
-                                onTurnPage = ::turnPage,
+                                onSeekChapter = ::seekChapter,
                             )
 
                             Screen.Voices -> VoicesScreen(state) {
