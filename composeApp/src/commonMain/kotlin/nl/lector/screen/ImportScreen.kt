@@ -211,13 +211,15 @@ fun ImportScreen(state: LectorState, library: LibrarySource) {
                             onClick = { state.covers = !state.covers; state.save() },
                         ) { M3Switch(state.covers) }
                         RowDivider()
-                        LectorRow("Voices", subtitle = "Dutch and English, bundled · 126 MB") {
-                            Pill("Ready", on = true, dot = true)
-                        }
+                        LectorRow(
+                            "Voices",
+                            subtitle = "Your device's own speech engine, for now",
+                        ) { Pill("Ready", on = true, dot = true) }
                     }
                     Note(
-                        "The app speaks straight out of the box. Higher-quality per-language " +
-                            "voices are an optional download in Settings.",
+                        "The app speaks straight out of the box, using the voices already on " +
+                            "this device. Bundled offline voices are still being chosen, so " +
+                            "nothing here claims a download size yet.",
                     )
                 }
             }

@@ -4,13 +4,15 @@
 "daily driver", per PRD §10.
 **Companions:** `PRD.md` (what and why), `TECHNICALPRD.md` (how), `Design/HANDOFF.md`
 (tokens and interaction contracts).
-**Last updated:** 2026-07-27, after Epics 11, 1, 2 and 9.1
+**Last updated:** 2026-07-27. Everything that can be finished without a device is
+finished; what is left is listed in §5.
 
 Status vocabulary used below:
 
 | Mark | Meaning |
 |---|---|
 | **Done** | Built and verified running on a device |
+| **Built** | Written, compiling, unit tests passing, never yet run on a device |
 | **Partial** | Real, but a stated requirement is still missing |
 | **Faked** | The interface says it works, the code does not do it |
 | **Not built** | Absent |
@@ -40,6 +42,13 @@ Status vocabulary used below:
 - **KOReader sidecar round-trip.** `<book>.sdr/metadata.epub.lua` written through
   SAF. Verified end to end: wipe app data, re-grant, rescan, progress returns.
 - **Library search**, pull-to-scan, sleep timer, symmetric page progress.
+
+### Built, not yet run on a device
+
+Everything below compiles, passes its unit tests and builds into both a debug and a
+minified release APK. None of it has been on a phone. That is the honest line between
+this section and the one above it, and it is where the next session starts.
+
 - **Contents from the book itself.** Readium's navigation document, flattened, with
   each entry's real progression from the positions service. Jumps land on the
   chapter's own locator. Books without one fall back to the spine (Epic 2).
@@ -47,25 +56,38 @@ Status vocabulary used below:
   a percentage that happens to be nearby (Epic 9.1).
 - **Open Library cover lookup, for real.** Two plain GETs behind the consent toggle,
   cached next to the embedded covers, honest about what did not come back (Epic 1).
+  No request has actually been made to Open Library yet.
+- **Listening away from the app.** Foreground service, framework `MediaSession`,
+  lock-screen metadata, notification transport, headphone buttons, audio focus that
+  pauses for a call (Epic 4).
+- **Cross-device continuation.** A sidecar ahead of local progress offers to resume,
+  and the writer merges rather than replaces, so KOReader's bookmarks survive
+  (Epic 6). The merge is covered by tests against a sidecar shaped like a real one.
+- **Library completeness.** Sort by recent, title or author; real error states for a
+  revoked grant; incremental rescan that skips unchanged files (Epic 7).
+- **Settings that do what they say.** Pitch, scrolling mode, sleep-timer default,
+  storage and cache, screen kept on (Epics 8 and 9.5). The language toggle is gone
+  rather than fake.
+- **Release build.** Minified and resource-shrunk, 4.7 MB against 18.8 MB debug,
+  with ProGuard rules for Readium's reflection. App icon, adaptive and monochrome
+  (Epic 10.1, 10.2).
 
 ### Partial
 
 - **Text to speech** uses the platform engine, not `sherpa-onnx`. It speaks and it
   reports word boundaries, but it is not the offline neural TTS the product is for
   (PRD §6.6). See **Epic 3**.
-- **Voices screen** lists a fictional catalogue. Preview animates, install and remove
-  flip a boolean. See **Epic 5**.
+- **Voices screen** lists a fictional catalogue. It now says so on the screen itself,
+  in as many words, until **Epic 5** can make it real.
 
 ### Faked
 
-Nothing left. The three screens that claimed something the code did not do (covers,
-contents, the spike reader) now either do it or are gone.
+Nothing left. Every screen that claimed something the code did not do either does it
+now, says plainly that it does not, or is gone.
 
 ### Not built
 
-Background playback and lock-screen controls, the resume prompt when a sidecar is
-ahead, library sort, scrolling reading mode, pitch, tablet layout, app icon, release
-build configuration, iOS.
+Neural TTS, real voice packages, tablet layout, instrumented tests, signing, iOS.
 
 ---
 
@@ -123,7 +145,7 @@ Listening it tracks the percentage, which is the same number one step later.
 
 ---
 
-### Epic 3: Offline neural TTS (Spike A)
+### Epic 3: Offline neural TTS (Spike A) — **Blocked on a device**
 
 **Why:** this is the product. PRD §2 is explicit that the reason for building it is an
 audiobook experience that runs entirely on device, with no cloud. The platform engine
@@ -131,6 +153,10 @@ is a stand-in, and on the emulator its Dutch voice already needed the network, w
 is exactly the failure this epic exists to remove.
 
 **Spike first, then integrate.** Do not build UI on it until the spike reports.
+Nothing in this epic can be finished at a desk: 3.1 needs a device in aeroplane mode
+and 3.2 is the author judging Dutch with English loanwords by ear. Everything else
+in the roadmap that could be done without it now has been, so this is the front of
+the queue and the only true unknown left.
 
 | # | Story | Acceptance |
 |---|---|---|
@@ -149,7 +175,7 @@ bindings and prebuilt AARs; no NDK toolchain needed on this machine today.
 
 ---
 
-### Epic 4: Listening away from the app
+### Epic 4: Listening away from the app — **Built, unverified**
 
 **Why:** PRD §6.6 asks for background playback with lock-screen and headphone
 controls. Right now closing the app stops the voice, which makes the audiobook use
@@ -164,14 +190,28 @@ case unusable in practice.
 | 4.5 | Audio focus | Ducks for notifications, pauses for calls, resumes after |
 | 4.6 | Position survives being killed | Reopen lands where the voice stopped |
 
-**Notes:** HANDOFF §7 lists this as specified but not designed, so there is visual
-work here too. `readium-navigator-media-tts` may cover part of it; evaluate against
-a plain `MediaSessionService` before adopting.
-**Size:** medium to large. **Risk:** medium.
+**Built:** `PlaybackService`, a foreground service owning a framework `MediaSession`
+and a `Notification.MediaStyle` notification. No media3 and no
+`readium-navigator-media-tts`: the platform APIs cover every story here and minSdk is
+already 26, so a dependency would have bought nothing. Audio focus is requested as
+speech, so a call pauses playback and it resumes after.
+
+**Known ceiling:** the speech loop still lives in the composition and the service is
+what stops Android reclaiming it. That covers screen off, another app in front and
+the lock screen. An activity destroyed outright would still stop the voice; the fix,
+moving the loop into the service, is marked in the file.
+
+**Deviation:** transient focus loss pauses rather than ducks, including the
+duck-allowed case. Speech under a notification chime is not listenable, and the
+engine's volume only takes effect from the next sentence.
+
+**Left:** all of it needs a device. None of these six stories can be verified by a
+build, and the visual work HANDOFF §7 asks for has not been done — the notification
+is the platform's own media template.
 
 ---
 
-### Epic 5: Voices become real packages
+### Epic 5: Voices become real packages — **Blocked by Epic 3**
 
 **Why:** depends on Epic 3 deciding what actually ships. Until then the screen is a
 mock and should not be built on.
@@ -187,9 +227,14 @@ mock and should not be built on.
 
 **Size:** medium. **Risk:** low once Epic 3 lands. **Blocked by:** Epic 3.
 
+**Interim:** the screen now says on itself that the catalogue is a placeholder and
+that the preview animates rather than speaks, and the import screen's "126 MB" claim
+is gone — no models ship today, so no size could be true. That is 5.6 handled in the
+only direction available before Epic 3 decides what ships.
+
 ---
 
-### Epic 6: Cross-device continuation
+### Epic 6: Cross-device continuation — **Done except 6.4**
 
 **Why:** the write half is done and verified. The read-and-reconcile half is what
 makes it a feature rather than a file format.
@@ -202,15 +247,21 @@ makes it a feature rather than a file format.
 | 6.4 | Round-trip against real KOReader | Test on an actual e-ink device |
 | 6.5 | Do not clobber KOReader's own fields | Merge rather than replace |
 
-**Notes:** 6.5 matters. The writer currently emits only fields we own, which is safe,
-but a real KOReader sidecar carries bookmarks and highlights that a naive rewrite
-would delete.
-**Size:** small to medium. **Risk:** medium, because the failure mode is data loss in
-someone else's file.
+**Built:** `mergeSidecarLua` substitutes the two fields we own into the existing
+file and leaves every other byte alone, tested against a trimmed real KOReader
+sidecar with bookmarks in it. The scanner reads `lector_locator` back too, so a
+device running Lector resumes on the exact line and a KOReader sidecar resumes on the
+percentage, which is all the two engines share. The offer is the existing snackbar
+with a live action; ignoring it keeps this device's position, which is then what gets
+written back.
+
+**Left:** 6.4, the round trip against real KOReader on the e-ink device. 6.5 is
+tested but only against a sidecar I typed out; a real one from the author's device
+would be a better test.
 
 ---
 
-### Epic 7: Library completeness
+### Epic 7: Library completeness — **Done except 7.5**
 
 | # | Story | Acceptance |
 |---|---|---|
@@ -220,13 +271,17 @@ someone else's file.
 | 7.4 | Incremental rescan | Unchanged files are not reparsed |
 | 7.5 | Book detail (optional, PRD §9.7) | Cover, metadata, progress, actions |
 
-**Notes:** 7.3 and 7.4 matter more than they look. Every scan currently reopens and
-reparses every file, including extracting covers again.
-**Size:** medium. **Risk:** low.
+**Built:** sort persists and covers search results too; a folder that cannot be read
+says why and hands over the picker; rescan skips files whose size and modification
+stamp are unchanged and whose cover is still cached. Sidecar progress is still read
+every scan, because that is the half another device moves.
+
+**Left:** 7.5, book detail, which the roadmap marks optional. 7.3 wants measuring on
+a real shelf of several hundred, which needs the device.
 
 ---
 
-### Epic 8: Settings that do what they say
+### Epic 8: Settings that do what they say — **Done**
 
 | # | Story | Acceptance |
 |---|---|---|
@@ -236,13 +291,18 @@ reparses every file, including extracting covers again.
 | 8.4 | Reading mode | Paginated or scrolling, if PRD §13.3 says both |
 | 8.5 | Storage and cache | Show what is used, allow clearing |
 
-**Notes:** 8.1 is an open question in PRD §13.1, not just work. Decide follow-system
-versus manual before building.
-**Size:** small. **Risk:** low.
+**Decided:** 8.1 went the other way the story allows. Every string in the app is
+English in source, so a three-way toggle was interface over nothing; the row is gone
+and a note says why. It comes back with translatable strings, not before.
+
+The rest are real: pitch through the `TtsEngine` seam, reading mode straight onto
+Readium's `scroll` preference, a sleep default that arms the timer when a session
+starts, and storage that shows the cover cache and clears it, then rescans so covers
+come back instead of turning into placeholders.
 
 ---
 
-### Epic 9: Reading experience polish
+### Epic 9: Reading experience polish — **9.1, 9.2 and 9.5 done**
 
 | # | Story | Acceptance | Status |
 |---|---|---|---|
@@ -261,7 +321,7 @@ back out of the sidecar rather than out of preferences is Epic 6.
 
 ---
 
-### Epic 10: Release readiness
+### Epic 10: Release readiness — **10.1 to 10.3 done, 10.5 partly**
 
 | # | Story | Acceptance |
 |---|---|---|
@@ -273,9 +333,18 @@ back out of the sidecar rather than out of preferences is Epic 6.
 | 10.6 | Tablet layout | HANDOFF §7 lists it as undesigned |
 | 10.7 | Instrumented tests | The flows this document claims are done stay done |
 
-**Notes:** 10.2 needs care. Readium and the TTS engine both use reflection in places,
-so ProGuard rules need checking rather than assuming.
-**Size:** medium. **Risk:** medium, mostly 10.2.
+**Built:** adaptive launcher icon with a monochrome layer; a release build that
+minifies and shrinks resources, 4.7 MB against 18.8 MB debug, verified to still carry
+the three bundled faces, the Readium assets and every icon. The ProGuard rules keep
+what Readium reaches for by name and each keep says why. A revoked grant now offers
+the folder picker in the message that reports it. Lint: 0 errors, no accessibility
+findings.
+
+**Left:** 10.2's "verified working" means installed and read from, which needs the
+device, and there is no keystore yet. 10.4 holds for position, library and settings,
+which are written as they change; the current screen is deliberately not restored.
+10.5 needs a real TalkBack pass. 10.6 is undesigned. 10.7 was not written: tests that
+have never been run are worse than no tests, and running them needs a device.
 
 ---
 
@@ -304,15 +373,18 @@ picker, cover decoding, system back), wrap the Readium Swift toolkit behind
 
 ## 3. Suggested order, and why
 
-Epics 11, 1, 2 and 9.1 are done. What is left, in order:
+Epics 11, 1, 2, 4, 6, 7, 8, 9 and most of 10 are built. What is left, in order:
 
-1. **Epic 3, the spike only** (3.1 to 3.3). It is the last thing that can invalidate
-   decisions, and TECHNICALPRD §12 puts the spikes first for exactly that reason. Stop
-   after the report and decide. This one needs a device and the author's ear, so it
-   cannot be finished from the desk: 3.2 is a judgement call by definition.
-2. **Epic 3 integration** (3.4 to 3.7), then **Epic 5**, which it unblocks.
-3. **Epic 4.** Large, and the app is not a daily driver without it.
-4. **Epics 6, 7, 8**, then **Epic 10** last, because release work spoils.
+1. **Install the release APK and read a book on it.** Everything in "Built, not yet
+   run on a device" is a claim until this happens, and it is cheap. The list in §5 is
+   what to look at while doing it.
+2. **Epic 3, the spike only** (3.1 to 3.3). The last thing that can invalidate
+   decisions, and TECHNICALPRD §12 puts the spikes first for exactly that reason.
+   Stop after the report and decide. It cannot be done from the desk: 3.2 is the
+   author judging Dutch by ear.
+3. **Epic 3 integration** (3.4 to 3.7), then **Epic 5**, which it unblocks.
+4. **The leftovers:** 6.4 against real KOReader, 7.5 if wanted, 9.3, 9.4 and 9.6
+   against the prototype, 10.4 to 10.7.
 
 The small honest epics went first in the end, which was the defensible alternative.
 The argument against it still stands for everything that remains: a week spent
@@ -334,5 +406,35 @@ From PRD §10, unchanged:
 - It feels finished, not like a prototype.
 
 Against that list today: setup and progress are met and verified. Reading is met.
-Listening is not, on two counts: the voice is not the neural one, and it stops when
-the app does. Those are Epics 3 and 4, and they are most of the remaining work.
+Listening is half met: it no longer stops when the app does, but the voice is still
+the platform's rather than the neural one, and that half is Epic 3. "Feels finished"
+is now a device question rather than a code question, which is the change since the
+last revision of this line.
+
+---
+
+## 5. What is left, and why it is left
+
+Nothing below is left because it was hard. Each one needs something a build cannot
+provide: a phone, a pair of ears, an e-ink device, or a design.
+
+| What | Why it is not done |
+|---|---|
+| Epic 3, the whole spike | Needs a device in aeroplane mode, and 3.2 is the author judging Dutch with English loanwords by ear |
+| Epic 5, real voice packages | Blocked by Epic 3: what ships is not decided, so a catalogue would be fiction again |
+| 6.4, KOReader round trip | Needs the e-ink device on the other end |
+| 7.5, book detail | Marked optional in this document, and nothing yet needs it |
+| 9.3, highlight granularity | A judgement against real prose on a real screen |
+| 9.4, page-turn animation | A comparison against the prototype, side by side |
+| 9.6, selection and copy | Currently the WebView's own, which is a deliberate keep; changing it is a design call |
+| 10.4, process death | Position, library and settings survive; the current screen deliberately does not. Wants confirming on a device |
+| 10.5, accessibility pass | Lint is clean, but TalkBack needs a device |
+| 10.6, tablet layout | Undesigned, per HANDOFF §7 |
+| 10.7, instrumented tests | They cannot be run here, and tests that have never run are worse than none |
+| Signing | No keystore exists yet |
+| Epic 12, iOS | Out of scope for Android completion, by this document's own §12 |
+
+The first four device checks worth doing, in order: does the release APK open a book
+at all after minification; does the resume prompt appear when a synced sidecar is
+ahead; does the voice keep going with the screen off; does the notification's chapter
+skip land where it should.

@@ -97,7 +97,17 @@ fun VoicesScreen(state: LectorState, onBack: () -> Unit) {
                 .padding(top = 12.dp)
                 .padding(bottom = 30.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
         ) {
-            Eyebrow("Preview", Modifier.padding(bottom = 10.dp))
+            // Said plainly rather than left to be discovered: this screen is the one
+            // place still describing something that does not exist yet. It becomes
+            // real in Epic 5, which waits on the engine decision in Epic 3.
+            Note(
+                "*Not real yet.* Lector currently speaks with the voices already installed " +
+                    "on your device. The catalogue below is a placeholder for the offline " +
+                    "voices that will ship once the speech engine is settled, and the " +
+                    "preview animates the words rather than speaking them.",
+            )
+
+            Eyebrow("Preview", Modifier.padding(top = 18.dp, bottom = 10.dp))
             Box(
                 Modifier
                     .fillMaxWidth()
