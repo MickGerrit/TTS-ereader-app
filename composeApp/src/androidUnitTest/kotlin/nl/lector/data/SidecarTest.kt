@@ -47,6 +47,61 @@ class SidecarTest {
         assertTrue(unescaped == 4, "unbalanced quoting in: $titleLine")
     }
 
+    /**
+     * A real KOReader sidecar, trimmed. The fields below are someone else's work:
+     * losing them is the failure mode this whole epic is careful about.
+     */
+    private val koreader = """
+        -- we can read Lua syntax here!
+        return {
+            ["bookmarks"] = {
+                [1] = {
+                    ["notes"] = "Chapter 4",
+                    ["page"] = "/body/DocFragment[6]/body/p[3].0",
+                },
+            },
+            ["doc_pages"] = 268,
+            ["highlight"] = {},
+            ["percent_finished"] = 0.180000,
+            ["stats"] = {
+                ["title"] = "Max Havelaar",
+            },
+        }
+    """.trimIndent()
+
+    @Test
+    fun `merging keeps every field KOReader wrote`() {
+        val merged = mergeSidecarLua(koreader, 0.62f, null, "Max Havelaar")
+        assertTrue("bookmarks" in merged, "bookmarks were dropped")
+        assertTrue("""["notes"] = "Chapter 4"""" in merged, "a bookmark's note was dropped")
+        assertTrue("""["doc_pages"] = 268""" in merged)
+        assertTrue("""["stats"]""" in merged)
+    }
+
+    @Test
+    fun `merging updates the one field we own`() {
+        val merged = mergeSidecarLua(koreader, 0.62f, null, "Max Havelaar")
+        assertTrue("""["percent_finished"] = 0.620000""" in merged, merged)
+        assertTrue("0.180000" !in merged, "the old progress survived: $merged")
+    }
+
+    @Test
+    fun `our locator is added to a file that has none, once`() {
+        val once = mergeSidecarLua(koreader, 0.62f, """{"href":"ch1"}""", "Max Havelaar")
+        val twice = mergeSidecarLua(once, 0.7f, """{"href":"ch2"}""", "Max Havelaar")
+        assertTrue(twice.split("lector_locator").size == 2, "duplicated key: $twice")
+        assertTrue("ch2" in twice && "ch1" !in twice)
+        assertTrue("""["percent_finished"] = 0.700000""" in twice)
+        assertTrue("bookmarks" in twice)
+    }
+
+    @Test
+    fun `a missing or unreadable sidecar falls back to writing our own`() {
+        assertTrue("percent_finished" in mergeSidecarLua(null, 0.5f, null, "T"))
+        assertTrue("percent_finished" in mergeSidecarLua("", 0.5f, null, "T"))
+        assertTrue("percent_finished" in mergeSidecarLua("not lua at all", 0.5f, null, "T"))
+    }
+
     @Test
     fun `the table is syntactically closed`() {
         val text = lua(0.42f)

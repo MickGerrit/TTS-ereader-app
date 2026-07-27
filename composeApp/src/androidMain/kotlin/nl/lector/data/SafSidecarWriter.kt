@@ -33,10 +33,18 @@ class SafSidecarWriter(private val context: Context) : SidecarWriter {
                 val file = findOrCreateFile(sidecarDir, "metadata.epub.lua")
                     ?: return@withContext "Could not create the sidecar file."
 
+                // Read before writing: an existing sidecar is KOReader's file, with
+                // KOReader's bookmarks and highlights in it (story 6.5).
+                val existing = runCatching {
+                    context.contentResolver.openInputStream(file)?.use { it.reader().readText() }
+                }.getOrNull()
+
                 // "wt" truncates. Without it a shorter document leaves trailing bytes
                 // from the previous write and the Lua no longer parses.
                 context.contentResolver.openOutputStream(file, "wt")?.use { out ->
-                    out.write(sidecarLua(progression, locator, book.title).toByteArray())
+                    out.write(
+                        mergeSidecarLua(existing, progression, locator, book.title).toByteArray(),
+                    )
                 } ?: return@withContext "Could not open the sidecar for writing."
 
                 null

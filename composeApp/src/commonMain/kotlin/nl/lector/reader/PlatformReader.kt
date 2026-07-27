@@ -27,4 +27,11 @@ interface ReaderController {
 
     /** Jump to a position the engine itself produced, for the Contents sheet. */
     fun goTo(locatorJson: String)
+
+    /**
+     * Jump to a fraction of the whole book. Only for positions that arrived as a
+     * percentage and nothing better — a KOReader sidecar, which is percentage-level
+     * by definition (HANDOFF §6.6).
+     */
+    fun goToProgression(progression: Float)
 }

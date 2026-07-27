@@ -27,8 +27,20 @@ enum class Sort(val label: String) {
     Recent("Recently read"), Title("By title"), Author("By author")
 }
 
-/** A snackbar message. `*bold*` and `` `mono` `` are rendered as such. */
-data class Snack(val message: String, val action: String = "Got it", val durationMs: Long = 3400)
+/**
+ * A snackbar message. `*bold*` and `` `mono` `` are rendered as such.
+ *
+ * [onAction] makes it a prompt rather than a notice: the button does something and
+ * ignoring it is a real answer. That is enough for the resume offer (PRD §6.8),
+ * which HANDOFF §7 lists as specified but undesigned — a dialog would be inventing
+ * a component, and this one already exists and already reads as "you may act".
+ */
+data class Snack(
+    val message: String,
+    val action: String = "Got it",
+    val durationMs: Long = 3400,
+    val onAction: (() -> Unit)? = null,
+)
 
 /**
  * All app state in one observable object.
@@ -242,8 +254,26 @@ class LectorState(private val prefs: Prefs) {
         save()
     }
 
-    fun show(message: String, action: String = "Got it", durationMs: Long = 3400) {
-        snack = Snack(message, action, durationMs)
+    fun show(
+        message: String,
+        action: String = "Got it",
+        durationMs: Long = 3400,
+        onAction: (() -> Unit)? = null,
+    ) {
+        snack = Snack(message, action, durationMs, onAction)
+    }
+
+    /**
+     * Another device is further along than this one (story 6.1).
+     *
+     * ponytail: read at scan time, and the app scans on every launch, so it is fresh
+     * where it matters. A folder that syncs while the app is already open will not be
+     * noticed until the next scan; re-read the one sidecar on open if that bites.
+     */
+    fun sidecarAhead(book: Book?): Boolean {
+        val b = book ?: return false
+        // Half a percent, so rounding between two engines is not a disagreement.
+        return b.sidecarProgress > pctOf(b.id) + 0.005f
     }
 
     // ── persistence ───────────────────────────────────────────────────────

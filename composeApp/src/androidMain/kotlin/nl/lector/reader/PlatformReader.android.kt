@@ -253,6 +253,11 @@ private fun ReadiumPage(state: LectorState, publication: org.readium.r2.shared.p
                         .getOrNull() ?: return
                     scope.launch { it.go(target, animated = false) }
                 }
+
+                override fun goToProgression(progression: Float) {
+                    val target = publication.locatorFromProgression(progression) ?: return
+                    scope.launch { it.go(target, animated = false) }
+                }
             }
         }
         onDispose { state.readerController = null }

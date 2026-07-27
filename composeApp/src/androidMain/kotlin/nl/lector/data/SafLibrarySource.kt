@@ -144,9 +144,8 @@ class SafLibrarySource(private val context: Context) : LibrarySource {
 
         // Progress is read every time: it is one small file, and it is the whole
         // point of the sidecar that another device may have moved it.
-        val progress = sidecarDirs[basename]
-            ?.let { readSidecarProgress(treeUri, it) }
-            ?: 0f
+        val sidecar = sidecarDirs[basename]?.let { readSidecar(treeUri, it) }
+        val progress = sidecar?.first ?: 0f
 
         // Unchanged file, cover still on disk: nothing in the zip can have moved, so
         // do not open it again (story 7.4). Every scan reparsing every book, cover
@@ -155,7 +154,11 @@ class SafLibrarySource(private val context: Context) : LibrarySource {
         if (previous != null && entry.stamp.isNotEmpty() && previous.stamp == entry.stamp &&
             (previous.coverImagePath == null || File(previous.coverImagePath).exists())
         ) {
-            return previous.copy(sidecarProgress = progress, locator = uri.toString())
+            return previous.copy(
+                sidecarProgress = progress,
+                sidecarLocator = sidecar?.second,
+                locator = uri.toString(),
+            )
         }
 
         val meta = readEpubMetadata { context.contentResolver.openInputStream(uri)!! } ?: return null
@@ -174,6 +177,7 @@ class SafLibrarySource(private val context: Context) : LibrarySource {
             // Only claim a cover if we actually got the bytes out.
             hasEmbeddedCover = meta.hasCover && coverPath != null,
             sidecarProgress = progress,
+            sidecarLocator = sidecar?.second,
             locator = uri.toString(),
             coverImagePath = coverPath,
             stamp = entry.stamp,
@@ -211,15 +215,21 @@ class SafLibrarySource(private val context: Context) : LibrarySource {
      * ponytail: regex over one known key. Use a Lua reader if we ever need the
      * bookmarks or highlights out of this file too.
      */
-    private fun readSidecarProgress(treeUri: Uri, sidecarDir: Entry): Float? {
+    private fun readSidecar(treeUri: Uri, sidecarDir: Entry): Pair<Float, String?>? {
         val meta = listChildren(treeUri, sidecarDir.id)
             ?.firstOrNull { it.name.endsWith(".lua") } ?: return null
         val uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, meta.id)
         return runCatching {
             context.contentResolver.openInputStream(uri)?.use { stream ->
                 val text = stream.reader().readText()
-                Regex("""\["percent_finished"\]\s*=\s*([0-9.]+)""")
-                    .find(text)?.groupValues?.get(1)?.toFloatOrNull()
+                val progress = Regex("""\["percent_finished"\]\s*=\s*([0-9.]+)""")
+                    .find(text)?.groupValues?.get(1)?.toFloatOrNull() ?: return@use null
+                // Ours if the device that wrote it was also running Lector, in which
+                // case resuming can land on the exact line instead of the percentage.
+                val locator = Regex("""\["lector_locator"\]\s*=\s*"(.*)"""")
+                    .find(text)?.groupValues?.get(1)
+                    ?.replace("\\\"", "\"")?.replace("\\\\", "\\")
+                progress to locator
             }
         }.getOrNull()
     }

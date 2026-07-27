@@ -134,9 +134,40 @@ fun App(
         state.ttsOn = !state.ttsOn
     }
 
+    /**
+     * Another device got further. Offer to follow it; ignoring the offer keeps this
+     * device's position, which is then what gets written back on close (story 6.3).
+     */
+    fun offerResume(book: nl.lector.data.Book) {
+        val there = book.sidecarProgress
+        val here = state.pctOf(book.id)
+        state.show(
+            "Another device is at *${fmt1(there * 100)}%* of `${book.title}`. " +
+                "This one is at ${fmt1(here * 100)}%.",
+            "Resume there",
+            durationMs = 8000,
+        ) {
+            state.progress[book.id] = there
+            val locator = book.sidecarLocator
+            if (locator != null) {
+                // Written by Lector on the other device, so it is a real position.
+                state.readerLocator = locator
+                state.readerController?.goTo(locator)
+            } else {
+                // Written by KOReader: percentage is all the two engines share.
+                state.readerLocator = null
+                state.readerController?.goToProgression(there)
+            }
+            state.save()
+        }
+    }
+
     fun openBook(id: String) {
         state.openBook(id)
         state.screen = Screen.Reader
+        state.books.firstOrNull { it.id == id }
+            ?.takeIf { state.sidecarAhead(it) }
+            ?.let(::offerResume)
     }
 
     fun closeBook() {
@@ -465,7 +496,11 @@ fun App(
                 val navBarVisible = state.screen in setOf(Screen.Library, Screen.Listen, Screen.Settings)
                 Snackbar(
                     snack = state.snack,
-                    onAction = { state.snack = null },
+                    onAction = {
+                        val snack = state.snack
+                        state.snack = null
+                        snack?.onAction?.invoke()
+                    },
                     bottomPadding = (if (navBarVisible) 92.dp else 24.dp) +
                         WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
                 )

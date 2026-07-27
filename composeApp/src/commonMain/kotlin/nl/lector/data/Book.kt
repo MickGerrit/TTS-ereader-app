@@ -23,6 +23,12 @@ data class Book(
     val hasEmbeddedCover: Boolean,
     /** `percent_finished` as read from the KOReader sidecar at scan time. */
     val sidecarProgress: Float = 0f,
+    /**
+     * Our own position out of the sidecar, when the device that wrote it was also
+     * running Lector. Absent when KOReader wrote it, which is why resuming from a
+     * KOReader sidecar lands on the percentage instead.
+     */
+    val sidecarLocator: String? = null,
     /** Opaque handle the platform uses to reopen the file. */
     val locator: String = "",
     /** Cached path to the cover extracted from the EPUB, when it had one. */
