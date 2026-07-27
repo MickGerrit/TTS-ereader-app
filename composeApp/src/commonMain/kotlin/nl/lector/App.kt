@@ -185,10 +185,21 @@ fun App(
             return@LaunchedEffect
         }
         val before = state.books.map { it.id }.toSet()
-        val result = library.scan(grant)
+        // What the last scan found, so unchanged files are not reparsed (story 7.4).
+        val result = library.scan(grant, state.books.associateBy { it.id })
+        state.scanning = false
+
+        if (result.error != null) {
+            // The shelf we already have is more useful than an empty one, so it stays
+            // on screen under the explanation.
+            state.scanError = result.error
+            state.show(result.error, "OK", durationMs = 6000)
+            return@LaunchedEffect
+        }
+
+        state.scanError = null
         state.books.clear()
         state.books += result.books
-        state.scanning = false
         state.lastScan = "just now"
         state.save()
 
@@ -198,7 +209,8 @@ fun App(
                 if (added > 0) {
                     "Scanned `${grant.label}` — *$added new*. ${result.books.size} indexed."
                 } else {
-                    "Scanned `${grant.label}` — no new EPUBs. ${result.books.size} indexed."
+                    "Scanned `${grant.label}` — no new EPUBs. ${result.books.size} indexed, " +
+                        "${result.reused} unchanged."
                 },
                 "OK",
             )

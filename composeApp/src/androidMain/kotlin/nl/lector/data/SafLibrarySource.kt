@@ -22,19 +22,43 @@ class SafLibrarySource(private val context: Context) : LibrarySource {
 
     override suspend fun scan(
         grant: FolderGrant,
+        known: Map<String, Book>,
         onProgress: (filesSeen: Int, booksFound: Int) -> Unit,
     ): ScanResult = withContext(Dispatchers.IO) {
-        val treeUri = Uri.parse(grant.locator)
+        val treeUri = runCatching { Uri.parse(grant.locator) }.getOrNull()
+            ?: return@withContext ScanResult(
+                emptyList(), 0,
+                error = "`${grant.label}` is no longer a folder Lector can open. Pick it again.",
+            )
         val books = mutableListOf<Book>()
         var filesSeen = 0
+        var reused = 0
 
         val queue = ArrayDeque<Pair<String, String>>()   // documentId to relative path
-        queue += DocumentsContract.getTreeDocumentId(treeUri) to ""
+        val rootId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull()
+            ?: return@withContext ScanResult(
+                emptyList(), 0,
+                error = "`${grant.label}` is no longer a folder Lector can open. Pick it again.",
+            )
+        queue += rootId to ""
+
+        // The first query is the one that tells us whether the grant still holds. A
+        // revoked permission or a folder that has been deleted both surface here, and
+        // an empty shelf with no explanation is the worst way to report either.
+        if (listChildren(treeUri, rootId) == null) {
+            return@withContext ScanResult(
+                emptyList(), 0,
+                error = "Lector cannot read `${grant.label}`. The permission may have been " +
+                    "revoked, or the folder may be gone. Choose the folder again in Settings.",
+            )
+        }
 
         while (queue.isNotEmpty()) {
             coroutineContext.ensureActive()
             val (parentId, parentPath) = queue.removeFirst()
-            val entries = listChildren(treeUri, parentId)
+            // A folder that has become unreadable mid-walk is skipped, not fatal:
+            // the rest of the shelf is still worth having.
+            val entries = listChildren(treeUri, parentId).orEmpty()
 
             val sidecarDirs = entries.filter { it.isDirectory && it.name.endsWith(".sdr") }
                 .associateBy { it.name.removeSuffix(".sdr") }
@@ -52,7 +76,11 @@ class SafLibrarySource(private val context: Context) : LibrarySource {
                     else -> {
                         filesSeen++
                         if (entry.name.endsWith(".epub", ignoreCase = true)) {
-                            readBook(treeUri, entry, path, sidecarDirs)?.let { books += it }
+                            val before = books.size
+                            readBook(treeUri, entry, path, sidecarDirs, known)?.let { books += it }
+                            if (books.size > before && books.last().stamp == known[books.last().id]?.stamp) {
+                                reused++
+                            }
                         }
                         onProgress(filesSeen, books.size)
                     }
@@ -60,17 +88,26 @@ class SafLibrarySource(private val context: Context) : LibrarySource {
             }
         }
 
-        ScanResult(books.sortedBy { it.title.lowercase() }, filesSeen)
+        ScanResult(books.sortedBy { it.title.lowercase() }, filesSeen, reused = reused)
     }
 
-    private data class Entry(val id: String, val name: String, val isDirectory: Boolean)
+    private data class Entry(
+        val id: String,
+        val name: String,
+        val isDirectory: Boolean,
+        /** Size and modification time, joined. Empty when the provider withholds them. */
+        val stamp: String = "",
+    )
 
-    private fun listChildren(treeUri: Uri, parentId: String): List<Entry> {
+    /** Null when the folder could not be read at all, as opposed to being empty. */
+    private fun listChildren(treeUri: Uri, parentId: String): List<Entry>? {
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentId)
         val projection = arrayOf(
             DocumentsContract.Document.COLUMN_DOCUMENT_ID,
             DocumentsContract.Document.COLUMN_DISPLAY_NAME,
             DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
         )
         return runCatching {
             context.contentResolver.query(childrenUri, projection, null, null, null)?.use { c ->
@@ -85,12 +122,13 @@ class SafLibrarySource(private val context: Context) : LibrarySource {
                                 id = id,
                                 name = name,
                                 isDirectory = c.getString(2) == DocumentsContract.Document.MIME_TYPE_DIR,
+                                stamp = "${c.getLong(3)}:${c.getLong(4)}",
                             ),
                         )
                     }
                 }
             }
-        }.getOrNull().orEmpty()
+        }.getOrNull()
     }
 
     private fun readBook(
@@ -98,16 +136,30 @@ class SafLibrarySource(private val context: Context) : LibrarySource {
         entry: Entry,
         path: String,
         sidecarDirs: Map<String, Entry>,
+        known: Map<String, Book>,
     ): Book? {
         val uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, entry.id)
-        val meta = readEpubMetadata { context.contentResolver.openInputStream(uri)!! } ?: return null
-
+        val id = stableHash(path).toString(16)
         val basename = entry.name.removeSuffix(".epub").removeSuffix(".EPUB")
+
+        // Progress is read every time: it is one small file, and it is the whole
+        // point of the sidecar that another device may have moved it.
         val progress = sidecarDirs[basename]
             ?.let { readSidecarProgress(treeUri, it) }
             ?: 0f
 
-        val id = stableHash(path).toString(16)
+        // Unchanged file, cover still on disk: nothing in the zip can have moved, so
+        // do not open it again (story 7.4). Every scan reparsing every book, cover
+        // extraction included, is what made a large shelf slow (7.3).
+        val previous = known[id]
+        if (previous != null && entry.stamp.isNotEmpty() && previous.stamp == entry.stamp &&
+            (previous.coverImagePath == null || File(previous.coverImagePath).exists())
+        ) {
+            return previous.copy(sidecarProgress = progress, locator = uri.toString())
+        }
+
+        val meta = readEpubMetadata { context.contentResolver.openInputStream(uri)!! } ?: return null
+
         // Either the book's own artwork, or one Open Library sent for it earlier —
         // both live in the same cache file, so a fetched cover survives a rescan.
         val coverPath = meta.coverEntry?.let { cacheCover(uri, it, id) } ?: cachedCover(id)
@@ -124,6 +176,7 @@ class SafLibrarySource(private val context: Context) : LibrarySource {
             sidecarProgress = progress,
             locator = uri.toString(),
             coverImagePath = coverPath,
+            stamp = entry.stamp,
         )
     }
 
@@ -160,7 +213,7 @@ class SafLibrarySource(private val context: Context) : LibrarySource {
      */
     private fun readSidecarProgress(treeUri: Uri, sidecarDir: Entry): Float? {
         val meta = listChildren(treeUri, sidecarDir.id)
-            .firstOrNull { it.name.endsWith(".lua") } ?: return null
+            ?.firstOrNull { it.name.endsWith(".lua") } ?: return null
         val uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, meta.id)
         return runCatching {
             context.contentResolver.openInputStream(uri)?.use { stream ->

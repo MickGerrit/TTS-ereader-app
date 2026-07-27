@@ -60,6 +60,7 @@ import nl.lector.design.Wordmark
 import nl.lector.design.LargeTopBar
 import nl.lector.state.LectorState
 import nl.lector.state.Screen
+import nl.lector.state.Sort
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -162,12 +163,9 @@ fun LibraryScreen(
             LargeTopBar("Library") {
                 Wordmark(size = 17.sp, modifier = Modifier.padding(start = 20.dp))
                 Spacer(Modifier.weight(1f))
-                IconBtn(LectorIcons.Sort, "Sort", {
-                    state.show(
-                        "Sorted by *recently read*. Title and author are the other options.",
-                        "Change",
-                    )
-                })
+                // Three options is one tap each, which is cheaper than a sheet that
+                // exists to hold three rows.
+                IconBtn(LectorIcons.Sort, "Sort: ${state.sort.label}", { cycleSort(state) })
             }
 
             Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
@@ -176,6 +174,13 @@ fun LibraryScreen(
                     onQuery = { state.query = it },
                     modifier = Modifier.padding(top = 4.dp, bottom = 22.dp),
                 )
+
+                // A folder that cannot be read says so, above whatever the last scan
+                // managed to find, rather than showing a silently empty shelf.
+                state.scanError?.let { reason ->
+                    Note(reason)
+                    Spacer(Modifier.height(14.dp))
+                }
 
                 if (state.books.isEmpty()) {
                     EmptyLibrary(state)
@@ -204,10 +209,10 @@ fun LibraryScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Eyebrow("All books · ${state.books.size}")
-                    Eyebrow("Recently read")
+                    Box(Modifier.clickable { cycleSort(state) }) { Eyebrow(state.sort.label) }
                 }
 
-                Shelf(state, state.books, onOpenBook, onFetchCover)
+                Shelf(state, state.sortedBooks(), onOpenBook, onFetchCover)
 
                 Note(
                     "Reading from ${state.folder?.label ?: "no folder"} · " +
@@ -443,6 +448,13 @@ private fun EmptyLibrary(state: LectorState) {
                 "in Settings.",
         )
     }
+}
+
+/** The sort control: one tap, next order, remembered. */
+private fun cycleSort(state: LectorState) {
+    state.sort = Sort.entries[(state.sort.ordinal + 1) % Sort.entries.size]
+    state.save()
+    state.show("Sorted *${state.sort.label.lowercase()}*.", "OK", durationMs = 2200)
 }
 
 /** One decimal place, without pulling in a formatting dependency. */

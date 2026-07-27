@@ -27,6 +27,11 @@ data class Book(
     val locator: String = "",
     /** Cached path to the cover extracted from the EPUB, when it had one. */
     val coverImagePath: String? = null,
+    /**
+     * Size and modification time, as the file system reported them at scan time.
+     * A rescan reparses only the files whose stamp changed.
+     */
+    val stamp: String = "",
 ) {
     /**
      * The generated placeholder's palette (PRD §6.7). Derived from the title, so a

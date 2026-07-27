@@ -22,6 +22,11 @@ import nl.lector.design.ReadingTheme
 enum class Screen { Import, Library, Reader, Voices, Listen, Settings }
 enum class Sheet { Appearance, Contents, Playback }
 
+/** How the shelf is ordered. Persisted, because a reader has one habit, not three. */
+enum class Sort(val label: String) {
+    Recent("Recently read"), Title("By title"), Author("By author")
+}
+
 /** A snackbar message. `*bold*` and `` `mono` `` are rendered as such. */
 data class Snack(val message: String, val action: String = "Got it", val durationMs: Long = 3400)
 
@@ -76,6 +81,13 @@ class LectorState(private val prefs: Prefs) {
 
     var lastWrite by mutableStateOf<String?>(null)
     var lastScan by mutableStateOf("never")
+    var sort by mutableStateOf(Sort.Recent)
+
+    /**
+     * Open order, newest highest. A counter rather than a clock: ordering is all it
+     * is ever asked for, and a counter needs no time source to persist or compare.
+     */
+    val opened: SnapshotStateMap<String, Int> = mutableStateMapOf()
 
     /** Reading position per book id, ahead of whatever the sidecar last said. */
     val progress: SnapshotStateMap<String, Float> = mutableStateMapOf()
@@ -129,6 +141,9 @@ class LectorState(private val prefs: Prefs) {
     /** Library search. Transient — a filter, not a preference. */
     var query by mutableStateOf("")
 
+    /** Why the last scan could not read the folder, if it could not. */
+    var scanError by mutableStateOf<String?>(null)
+
     /** The live reader, while one is on screen. Drives the transport's page turns. */
     var readerController: nl.lector.reader.ReaderController? = null
 
@@ -169,13 +184,29 @@ class LectorState(private val prefs: Prefs) {
     /** Books still showing a generated placeholder, which is what a fetch is for. */
     fun booksWithoutCover(): List<Book> = books.filter { it.coverImagePath == null }
 
+    /** The shelf in the reader's chosen order. */
+    fun sortedBooks(source: List<Book> = books): List<Book> = when (sort) {
+        // Unopened books have no place in a recency order, so they follow the ones
+        // that do, in title order rather than in whatever order the walk found them.
+        Sort.Recent -> source.sortedWith(
+            compareByDescending<Book> { opened[it.id] ?: 0 }.thenBy { it.title.lowercase() },
+        )
+
+        Sort.Title -> source.sortedBy { it.title.lowercase() }
+        Sort.Author -> source.sortedWith(
+            compareBy<Book> { it.author.lowercase() }.thenBy { it.title.lowercase() },
+        )
+    }
+
     /** Title-or-author match, case- and accent-insensitively enough for a shelf. */
     fun matchingBooks(): List<Book> {
         val q = query.trim()
-        if (q.isBlank()) return books
-        return books.filter {
-            it.title.contains(q, ignoreCase = true) || it.author.contains(q, ignoreCase = true)
-        }
+        if (q.isBlank()) return sortedBooks()
+        return sortedBooks(
+            books.filter {
+                it.title.contains(q, ignoreCase = true) || it.author.contains(q, ignoreCase = true)
+            },
+        )
     }
 
     /**
@@ -189,6 +220,7 @@ class LectorState(private val prefs: Prefs) {
     // ── mutations ─────────────────────────────────────────────────────────
 
     fun openBook(id: String) {
+        opened[id] = (opened.values.maxOrNull() ?: 0) + 1
         if (id != bookId) {
             // A different book means a different position; do not carry the old one.
             word = -1
@@ -234,7 +266,9 @@ class LectorState(private val prefs: Prefs) {
         prefs.put("appearance", appearance.name)
         prefs.put("lastWrite", lastWrite.orEmpty())
         prefs.put("lastScan", lastScan)
+        prefs.put("sort", sort.name)
         prefs.put("locator", readerLocator.orEmpty())
+        prefs.put("opened", opened.entries.joinToString(",") { "${it.key}=${it.value}" })
         prefs.put("progress", progress.entries.joinToString(",") { "${it.key}=${it.value}" })
         prefs.put("fetched", fetched.filterValues { it }.keys.joinToString(","))
         prefs.put("added", added.filterValues { it }.keys.joinToString(","))
@@ -260,7 +294,13 @@ class LectorState(private val prefs: Prefs) {
         prefs.get("appearance")?.let { n -> Appearance.entries.firstOrNull { it.name == n }?.let { appearance = it } }
         prefs.get("lastWrite")?.takeIf { it.isNotEmpty() }?.let { lastWrite = it }
         prefs.get("lastScan")?.let { lastScan = it }
+        prefs.get("sort")?.let { n -> Sort.entries.firstOrNull { it.name == n }?.let { sort = it } }
         prefs.get("locator")?.takeIf { it.isNotEmpty() }?.let { readerLocator = it }
+
+        prefs.get("opened")?.split(",")?.forEach { entry ->
+            val parts = entry.split("=")
+            if (parts.size == 2) parts[1].toIntOrNull()?.let { opened[parts[0]] = it }
+        }
 
         prefs.get("progress")?.split(",")?.forEach { entry ->
             val parts = entry.split("=")
