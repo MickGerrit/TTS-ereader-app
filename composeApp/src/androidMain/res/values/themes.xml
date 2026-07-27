@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Edge-to-edge, no ActionBar. The app draws its own status bar area, matching
+         the prototype's 36px status strip and the reader's full-bleed surface. -->
+    <!-- AppCompat parent because Readium's EpubNavigatorFragment must be hosted by
+         a FragmentActivity, and its WebView inflation expects an AppCompat context. -->
+    <style name="Theme.Lector" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+</resources>
