@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launcher icon's two colours, resolved from the design tokens in
+     design/Chrome.kt: the light theme's paper background and its accent. Kept as
+     literals because the tokens are Oklch and computed in Kotlin, and an icon is
+     rendered by the launcher long before any of our code runs. -->
+<resources>
+    <color name="ic_launcher_background">#F9F8F5</color>
+    <color name="ic_launcher_foreground">#9A5048</color>
+</resources>

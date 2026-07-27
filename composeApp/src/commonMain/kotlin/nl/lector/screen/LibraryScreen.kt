@@ -209,7 +209,9 @@ fun LibraryScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Eyebrow("All books · ${state.books.size}")
-                    Box(Modifier.clickable { cycleSort(state) }) { Eyebrow(state.sort.label) }
+                    Box(
+                        Modifier.clickable(onClickLabel = "Change the order") { cycleSort(state) },
+                    ) { Eyebrow(state.sort.label) }
                 }
 
                 Shelf(state, state.sortedBooks(), onOpenBook, onFetchCover)

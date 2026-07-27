@@ -308,7 +308,9 @@ fun App(
             // The shelf we already have is more useful than an empty one, so it stays
             // on screen under the explanation.
             state.scanError = result.error
-            state.show(result.error, "OK", durationMs = 6000)
+            // The way out of a revoked grant is granting it again, so the message
+            // carries the picker rather than describing it (story 10.3).
+            state.show(result.error, "Choose folder", durationMs = 8000) { pickFolder() }
             return@LaunchedEffect
         }
 

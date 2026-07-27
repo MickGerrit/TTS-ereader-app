@@ -67,7 +67,14 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+            // Unsigned for now: there is no keystore to sign with yet, and the
+            // point of building release today is that shrinking does not break it.
         }
     }
 
